@@ -1,1 +1,0 @@
-pyinstaller -F -w -i ico\reno.ico  main.py -n easyofd.exe
