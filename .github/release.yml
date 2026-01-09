@@ -1,0 +1,91 @@
+name: Build and Release Executable
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      draft:
+        description: 'Create as draft?'
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Mark as pre-release?'
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-2019, ubuntu-22.04]
+        python-version: ['3.8']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requerment.txt
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build executable (Windows)
+        if: runner.os == 'Windows'
+        run: pyinstaller -F -w --name pdf4ofd main.py
+
+      - name: Build executable (Linux)
+        if: runner.os == 'Linux'
+        run: pyinstaller -F -w --name pdf4ofd main.py
+
+      - name: Rename Linux binary for clarity (optional)
+        if: runner.os == 'Linux'
+        run: mv dist/pdf4ofd dist/pdf4ofd-linux
+
+      - name: Upload build artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf4ofd-windows
+          path: dist/pdf4ofd.exe
+
+      - name: Upload build artifact (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf4ofd-linux
+          path: dist/pdf4ofd-linux
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Display structure of downloaded files
+        run: ls -R
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          draft: ${{ fromJSON(github.event.inputs.draft) }}
+          prerelease: ${{ fromJSON(github.event.inputs.prerelease) }}
+          files: |
+            artifacts/pdf4ofd-windows/pdf4ofd.exe
+            artifacts/pdf4ofd-linux/pdf4ofd-linux
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
