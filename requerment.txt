@@ -1,0 +1,7 @@
+pyqt5
+reportlab
+xmltodict==0.13.0
+loguru==0.7.2
+fontTools==4.43.1
+PyMuPDF
+pyasn1>=0.6.0
