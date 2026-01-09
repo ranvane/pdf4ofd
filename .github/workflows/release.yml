@@ -30,7 +30,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -51,18 +51,18 @@ jobs:
         if: runner.os == 'Linux'
         run: pyinstaller -F -w --name pdf4ofd main.py
 
-      - name: Rename Linux binary for clarity (optional)
+      - name: Rename Linux binary
         if: runner.os == 'Linux'
         run: mv dist/pdf4ofd dist/pdf4ofd-linux
 
-      - name: Upload build artifact (Windows)
+      - name: Upload Windows artifact
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: pdf4ofd-windows
           path: dist/pdf4ofd.exe
 
-      - name: Upload build artifact (Linux)
+      - name: Upload Linux artifact
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
@@ -73,22 +73,36 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push git tag (if not exists)
+        run: |
+          TAG="${{ github.event.inputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skip creating."
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
 
-      - name: Display structure of downloaded files
-        run: ls -R
+      - name: Display downloaded files
+        run: ls -R artifacts
 
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
           draft: ${{ fromJSON(github.event.inputs.draft) }}
           prerelease: ${{ fromJSON(github.event.inputs.prerelease) }}
           files: |
             artifacts/pdf4ofd-windows/pdf4ofd.exe
             artifacts/pdf4ofd-linux/pdf4ofd-linux
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
