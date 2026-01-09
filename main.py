@@ -5,9 +5,9 @@ import base64
 from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox
 from PyQt5.QtCore import pyqtSlot, QObject, QEvent
 from easyofd import OFD
-from ui_main import (
+from main_ui import (
     Ui_MainWindow,
-)  # 确保 ui_main.py 是用 pyuic5 -x main.ui -o ui_main.py 生成的
+)  # 确保 main_ui.py 是用 pyuic5 -x main.ui -o main_ui.py 生成的
 from loguru import logger
 
 
@@ -111,7 +111,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             self.convertButton.setText("转换文件")
             # self.convertImageButton.setText("转换文件(图片方式)")
-
 
     @pyqtSlot()
     def convert_file(self):

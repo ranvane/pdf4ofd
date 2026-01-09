@@ -3,7 +3,7 @@
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
   <property name="enabled">
-   <bool>false</bool>
+   <bool>true</bool>
   </property>
   <property name="geometry">
    <rect>
@@ -63,6 +63,9 @@
      </item>
      <item>
       <widget class="QLineEdit" name="file_path">
+       <property name="enabled">
+        <bool>true</bool>
+       </property>
        <property name="minimumSize">
         <size>
          <width>600</width>
@@ -98,7 +101,7 @@
      </item>
     </layout>
    </widget>
-   <widget class="QWidget" name="">
+   <widget class="QWidget" name="layoutWidget">
     <property name="geometry">
      <rect>
       <x>250</x>
@@ -187,6 +190,5 @@
   <slot>select_file()</slot>
   <slot>convert_file()</slot>
   <slot>update_convert_button_text()</slot>
-  <slot>convert_image_file()</slot>
  </slots>
 </ui>
