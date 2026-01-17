@@ -1,18 +1,18 @@
-name: Build and Release Executable
+name: 构建并发布多可执行文件（UPX 压缩）
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g., v1.0.0)'
+        description: '发布版本号（例如 v1.0.0）'
         required: true
         default: 'v1.0.0'
       draft:
-        description: 'Create as draft?'
+        description: '是否创建为草稿？'
         type: boolean
         default: false
       prerelease:
-        description: 'Mark as pre-release?'
+        description: '是否标记为预发布？'
         type: boolean
         default: false
 
@@ -21,48 +21,77 @@ permissions:
 
 jobs:
   build:
+    name: 构建可执行文件
     strategy:
       matrix:
         os: [windows-2019, ubuntu-22.04]
         python-version: ['3.8']
     runs-on: ${{ matrix.os }}
+
     steps:
-      - name: Checkout code
+      - name: 拉取代码
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: 设置 Python 环境
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: 安装项目依赖
         run: |
           python -m pip install --upgrade pip
           pip install -r requerment.txt
 
-      - name: Install PyInstaller
+      - name: 安装 PyInstaller
         run: pip install pyinstaller
 
-      - name: Build executable (Windows)
+      # ---------- 安装 UPX ----------
+      - name: 安装 UPX（Windows）
+        if: runner.os == 'Windows'
+        run: choco install upx -y
+
+      - name: 安装 UPX（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y upx-ucl
+
+      # ---------- 构建 ----------
+      - name: 构建 Windows 可执行文件
         if: runner.os == 'Windows'
         run: pyinstaller -F -w --name pdf4ofd main.py
 
-      - name: Build executable (Linux)
+      - name: 构建 Linux 可执行文件
         if: runner.os == 'Linux'
         run: pyinstaller -F -w --name pdf4ofd main.py
 
-      - name: Rename Linux binary
+      # ---------- UPX 压缩 ----------
+      - name: 使用 UPX 压缩 Windows 可执行文件
+        if: runner.os == 'Windows'
+        run: upx --best --lzma dist/pdf4ofd.exe
+
+      - name: 使用 UPX 压缩 Linux 可执行文件
+        if: runner.os == 'Linux'
+        run: upx --best --lzma dist/pdf4ofd
+
+      # ---------- Linux 后处理 ----------
+      - name: 设置 Linux 可执行权限
+        if: runner.os == 'Linux'
+        run: chmod +x dist/pdf4ofd
+
+      - name: 重命名 Linux 可执行文件
         if: runner.os == 'Linux'
         run: mv dist/pdf4ofd dist/pdf4ofd-linux
 
-      - name: Upload Windows artifact
+      # ---------- 上传 ----------
+      - name: 上传 Windows 构建产物
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: pdf4ofd-windows
           path: dist/pdf4ofd.exe
 
-      - name: Upload Linux artifact
+      - name: 上传 Linux 构建产物
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
@@ -70,37 +99,36 @@ jobs:
           path: dist/pdf4ofd-linux
 
   release:
+    name: 创建发布版本
     needs: build
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      - name: 拉取仓库
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Create and push git tag (if not exists)
+      - name: 创建并推送 Git 标签（如不存在）
         run: |
           TAG="${{ github.event.inputs.version }}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists, skip creating."
+            echo "标签 $TAG 已存在，跳过创建。"
           else
             git tag "$TAG"
             git push origin "$TAG"
           fi
 
-      - name: Download all artifacts
+      - name: 下载所有构建产物
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
 
-      - name: Display downloaded files
-        run: ls -R artifacts
-
-      - name: Create Release and Upload Assets
+      - name: 创建 Release 并上传附件
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.version }}
-          name: Release ${{ github.event.inputs.version }}
+          name: 发布版本 ${{ github.event.inputs.version }}
           draft: ${{ fromJSON(github.event.inputs.draft) }}
           prerelease: ${{ fromJSON(github.event.inputs.prerelease) }}
           files: |
