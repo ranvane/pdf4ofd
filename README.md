@@ -44,3 +44,11 @@
 
 
 > 💡 **提示**：OFD 格式仍在演进中，不同厂商生成的 OFD 文件可能存在兼容性差异。建议在生产环境中充分验证转换结果。
+
+
+
+pyinstaller打包、upx压缩：
+```
+pyinstaller -F -w --name pdf4ofd main.py
+upx --best --lzma --force dist/pdf4ofd.exe
+```
