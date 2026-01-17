@@ -1,4 +1,4 @@
-name: 构建并发布多可执行文件（UPX 压缩）
+name: 构建并发布多可执行文件（Windows UPX / Linux Nuitka）
 
 on:
   workflow_dispatch:
@@ -42,54 +42,55 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requerment.txt
 
-      - name: 安装 PyInstaller
+      # ---------- Windows：PyInstaller ----------
+      - name: 安装 PyInstaller（Windows）
+        if: runner.os == 'Windows'
         run: pip install pyinstaller
 
-      # ---------- 安装 UPX ----------
       - name: 安装 UPX（Windows）
         if: runner.os == 'Windows'
         run: choco install upx -y
 
-      - name: 安装 UPX（Linux）
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y upx-ucl
-
-      # ---------- 构建 ----------
       - name: 构建 Windows 可执行文件
         if: runner.os == 'Windows'
         run: pyinstaller -F -w --name pdf4ofd main.py
 
-      - name: 构建 Linux 可执行文件
-        if: runner.os == 'Linux'
-        run: pyinstaller -F -w --name pdf4ofd main.py
-
-      # ---------- UPX 压缩 ----------
       - name: 使用 UPX 压缩 Windows 可执行文件
         if: runner.os == 'Windows'
         run: upx --best --lzma --force dist/pdf4ofd.exe
-        
-      - name: 使用 UPX 压缩 Linux 可执行文件
-        if: runner.os == 'Linux'
-        run: upx --best --lzma dist/pdf4ofd
 
-      # ---------- Linux 后处理 ----------
-      - name: 设置 Linux 可执行权限
-        if: runner.os == 'Linux'
-        run: chmod +x dist/pdf4ofd
-
-      - name: 重命名 Linux 可执行文件
-        if: runner.os == 'Linux'
-        run: mv dist/pdf4ofd dist/pdf4ofd-linux
-
-      # ---------- 上传 ----------
       - name: 上传 Windows 构建产物
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: pdf4ofd-windows
           path: dist/pdf4ofd.exe
+
+      # ---------- Linux：Nuitka ----------
+      - name: 安装 Nuitka 编译依赖（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc g++ patchelf
+          pip install nuitka
+
+      - name: 使用 Nuitka 构建 Linux 可执行文件
+        if: runner.os == 'Linux'
+        run: |
+          nuitka \
+            --standalone \
+            --follow-imports \
+            --remove-output \
+            --assume-yes-for-downloads \
+            --output-dir=build \
+            main.py
+
+      - name: 整理 Linux 构建产物
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          cp build/main.dist/main dist/pdf4ofd-linux
+          chmod +x dist/pdf4ofd-linux
 
       - name: 上传 Linux 构建产物
         if: runner.os == 'Linux'
