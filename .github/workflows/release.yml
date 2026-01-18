@@ -68,7 +68,7 @@ jobs:
       # ---------- UPX 压缩 ----------
       - name: 使用 UPX 压缩 Windows 可执行文件
         if: runner.os == 'Windows'
-        run: upx --best --lzma dist/pdf4ofd.exe
+        run: upx --best --lzma --force dist/pdf4ofd.exe
 
       - name: 使用 UPX 压缩 Linux 可执行文件
         if: runner.os == 'Linux'
