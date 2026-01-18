@@ -3,31 +3,18 @@
 """
 字体处理工具模块（FontTool）
 
-本模块负责：
-1. 扫描并解析当前系统中已安装的字体（TTF / OTF / TTC）
-2. 提取字体的中英文名称及家族名称
-3. 判断字体是否可用
-4. 向 ReportLab 动态注册字体（支持 base64 字体数据）
-
-主要用于 OFD → PDF 转换过程中，解决字体缺失、字体映射、字体注册等问题。
-
-Author: reno
-Email: renoyuan@foxmail.com
-Create Time: 2023-07-27
-Project: easyofd
+用于 easyofd 项目中 OFD → PDF 过程中字体解析、匹配与注册。
 """
 
 import os
+import re
 import base64
 import traceback
-import logging
+import subprocess
 from fontTools.ttLib import TTFont as ttLib_TTFont
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-
-from reportlab.lib.fonts import _tt2ps_map
-from reportlab.lib.fonts import _family_alias
-
+from reportlab.lib.fonts import _tt2ps_map, _family_alias
 from easyofd.draw import FONTS
 from loguru import logger
 
@@ -35,162 +22,96 @@ from loguru import logger
 class FontTool(object):
     """
     字体工具类（FontTool）
-
-    该类用于统一管理字体相关能力，包括：
-    - 系统字体扫描
-    - 字体名称规范化
-    - TTC 字体集合解析
-    - 字体可用性检测
-    - ReportLab 字体动态注册
-
-    设计目标：
-    - 尽可能保证 PDF 生成过程中“有字体可用”
-    - 即使原始 OFD 使用的字体不存在，也能降级处理
     """
 
     # 初始字体列表（来自 easyofd.draw）
     FONTS = FONTS
 
+    # 仅用于“中文 ↔ 英文”语义桥接，不用于穷举
+    FONT_ALIAS_MAP = {
+        "宋体": ["SimSun"],
+        "黑体": ["SimHei"],
+        "楷体": ["KaiTi"],
+    }
+
     def __init__(self):
         """
-        FontTool 初始化方法
-
-        初始化时会：
-        1. 扫描当前操作系统的字体目录
-        2. 解析所有可识别字体
-        3. 将结果存入 self.FONTS，作为运行期可用字体集合
+        初始化 FontTool
         """
-        logger.debug("FontTool init, read system default fonts ...")
+        logger.debug("FontTool init, scanning system fonts ...")
 
-        # 扫描系统字体并覆盖默认字体列表
-        self.FONTS = self.get_installed_fonts()
+        # 构建系统字体映射：norm_name -> font_path
+        self._system_font_map = self._scan_system_fonts()
 
-        logger.debug(f"system default fonts loaded:\n{self.FONTS}\n{'-' * 50}")
+        # 构建可用字体名称列表（供外部逻辑使用）
+        self.FONTS = list(set(self._system_font_map.values()))
+        logger.debug(f"FontTool init, scanned system fonts: {self.FONTS}")
 
-    def get_system_font_dirs(self):
+        # 构建 norm_name -> 原始 family name 映射
+        self._font_norm_map = {
+            norm: family for norm, (family, _) in self._system_font_map.items()
+        }
+
+        logger.debug(f"System fonts loaded: {len(self._system_font_map)}")
+
+    # ------------------------------------------------------------------
+    # 核心规范化逻辑
+    # ------------------------------------------------------------------
+
+    def _norm(self, name: str) -> str:
         """
-        获取当前操作系统的字体目录列表
-
-        Returns:
-            list[str]: 字体目录路径列表
+        统一字体名称规范：
+        - 去子集前缀（XXXXXX+）
+        - 去空格 / 连字符
+        - 转小写
         """
-        system = os.name
+        if not name:
+            return ""
 
-        # Windows 系统字体目录
-        if system == "nt":
-            return [os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts")]
+        name = re.sub(r"^[A-Z]{6}\+", "", name)
+        name = name.replace(" ", "").replace("-", "")
+        return name.lower()
 
-        # Linux / macOS
-        elif system == "posix":
-            return [
-                "/usr/share/fonts",
-                "/usr/local/share/fonts",
-                os.path.expanduser("~/.fonts"),
-                os.path.expanduser("~/.local/share/fonts"),
-                "/Library/Fonts",  # macOS
-                "/System/Library/Fonts",  # macOS
-            ]
-        else:
-            return []
+    # ------------------------------------------------------------------
+    # 系统字体扫描（核心）
+    # ------------------------------------------------------------------
 
-    def normalize_font_name(self, font_name):
+    def _scan_system_fonts(self):
         """
-        字体名称规范化处理
-
-        用于将不同风格的字体名转换为 ReportLab 更易识别的形式。
-
-        示例：
-            "Times New Roman Bold" → "TimesNewRoman-Bold"
-
-        Args:
-            font_name (str): 原始字体名称
-
-        Returns:
-            str: 规范化后的字体名称
+        使用 fontconfig(fc-list) 扫描系统字体（Linux/macOS）
+        返回：
+            {
+                norm_name: (family_name, font_path)
+            }
         """
-        # 去除空格
-        normalized = font_name.replace(" ", "")
-
-        # 常见字体样式后缀处理
-        for style in ["Bold", "Italic", "Regular", "Light", "Medium"]:
-            if style in normalized:
-                normalized = normalized.replace(style, f"-{style}")
-
-        # 特殊字体名称兼容处理
-        if normalized == "TimesNewRoman":
-            normalized = "Times-Roman"
-
-        return normalized
-
-    def _process_ttc_font(self, ttc_font):
-        """
-        解析 TTC（TrueType Collection）字体文件中的字体名称
-
-        TTC 文件中通常包含多个字体，需要逐个提取其 name 表。
-
-        Args:
-            ttc_font (TTFont): fontTools 解析后的 TTC 字体对象
-
-        Returns:
-            set[str]: 字体名称集合
-        """
-
-        def judge_name(name):
-            """
-            判断字体名称是否合法（过滤异常或无意义名称）
-            """
-            if not name:
-                return False
-            if "http://" in name or "https://" in name:
-                return False
-            if len(name) > 50:
-                return False
-            return True
-
-        font_names = set()
+        font_map = {}
 
         try:
-            # 读取 name 表中的所有记录
-            name_records = ttc_font["name"].names
+            output = subprocess.check_output(
+                ["fc-list", "--format=%{family}|%{file}\n"], text=True
+            )
+        except Exception:
+            logger.warning("fc-list not available, fallback to manual scan")
+            return self._scan_by_fonttools()
 
-            for record in name_records:
-                try:
-                    # 简体中文名称（Windows, zh-CN）
-                    if record.platformID == 3 and record.langID == 2052:
-                        cn_name = record.toUnicode()
-                        if judge_name(cn_name):
-                            font_names.add(cn_name)
+        for line in output.splitlines():
+            if "|" not in line:
+                continue
 
-                    # 英文名称（Windows, en-US）
-                    elif record.platformID == 3 and record.langID == 1033:
-                        en_name = record.toUnicode()
-                        if judge_name(en_name):
-                            font_names.add(en_name)
+            family, path = line.split("|", 1)
 
-                except Exception:
-                    # 单条记录解析失败不影响整体
-                    continue
+            for name in family.split(","):
+                norm = self._norm(name)
+                font_map[norm] = (name.strip(), path)
 
-        except KeyError:
-            # TTC 字体中不存在 name 表
-            pass
+        return font_map
 
-        return font_names
-
-    def get_installed_fonts(self):
+    def _scan_by_fonttools(self):
         """
-        扫描系统字体目录并提取已安装字体名称
-
-        支持字体类型：
-        - .ttf
-        - .otf
-        - .ttc
-
-        Returns:
-            list[str]: 已安装字体名称列表
+        fontconfig 不可用时的兜底扫描方案（跨平台）
         """
         font_dirs = self.get_system_font_dirs()
-        installed_fonts = set()
+        font_map = {}
 
         for font_dir in font_dirs:
             if not os.path.isdir(font_dir):
@@ -201,112 +122,115 @@ class FontTool(object):
                     if not file.lower().endswith((".ttf", ".otf", ".ttc")):
                         continue
 
-                    font_path = os.path.join(root, file)
-
+                    path = os.path.join(root, file)
                     try:
-                        # TTC 字体集合处理
-                        if file.lower().endswith(".ttc"):
-                            ttc_font = ttLib_TTFont(font_path, fontNumber=0)
-                            installed_fonts.update(self._process_ttc_font(ttc_font))
-                        else:
-                            # 普通 TTF / OTF 字体
-                            with ttLib_TTFont(font_path) as font:
-                                name_table = font["name"]
+                        font = ttLib_TTFont(path, fontNumber=0)
+                        for record in font["name"].names:
+                            try:
+                                name = record.toUnicode()
+                                norm = self._norm(name)
+                                font_map[norm] = (name, path)
+                            except Exception:
+                                continue
+                    except Exception:
+                        continue
 
-                                # 全名字体（中文 / 英文）
-                                if name_cn := name_table.getName(4, 3, 1, 2052):
-                                    installed_fonts.add(name_cn.toUnicode())
+        return font_map
 
-                                if name_en := name_table.getName(4, 3, 1, 1033):
-                                    installed_fonts.add(name_en.toUnicode())
+    def get_system_font_dirs(self):
+        """
+        获取系统字体目录
+        """
+        if os.name == "nt":
+            return [os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts")]
+        return [
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            os.path.expanduser("~/.fonts"),
+            os.path.expanduser("~/.local/share/fonts"),
+            "/Library/Fonts",
+            "/System/Library/Fonts",
+        ]
 
-                                # 字体家族名
-                                if family_cn := name_table.getName(1, 3, 1, 2052):
-                                    installed_fonts.add(family_cn.toUnicode())
-
-                                if family_en := name_table.getName(1, 3, 1, 1033):
-                                    installed_fonts.add(family_en.toUnicode())
-
-                    except Exception as e:
-                        logger.warning(f"解析字体失败: {font_path}, {e}")
-
-        # 转为列表
-        installed_fonts = list(installed_fonts)
-
-        # 将“宋体”优先放在首位（兼容中文文档）
-        if "宋体" in installed_fonts:
-            installed_fonts.remove("宋体")
-            installed_fonts.insert(0, "宋体")
-
-        return installed_fonts
+    # ------------------------------------------------------------------
+    # 字体可用性与解析
+    # ------------------------------------------------------------------
 
     def is_font_available(self, target_font):
         """
-        判断指定字体是否在系统中可用
-
-        Args:
-            target_font (str): 字体名称
-
-        Returns:
-            bool: 是否存在
+        判断指定字体是否可用
         """
-        return target_font in self.get_installed_fonts()
+        norm = self._norm(target_font)
+
+        # 1️⃣ 直接命中
+        if norm in self._system_font_map:
+            return True
+
+        # 2️⃣ 中文别名桥接
+        for alias in self.FONT_ALIAS_MAP.get(target_font, []):
+            if self._norm(alias) in self._system_font_map:
+                return True
+
+        return False
+
+    def resolve_font_name(self, target_font):
+        """
+        解析字体名称，返回系统中真实存在的字体 family 名
+        """
+        norm = self._norm(target_font)
+
+        if norm in self._system_font_map:
+            return self._system_font_map[norm][0]
+
+        for alias in self.FONT_ALIAS_MAP.get(target_font, []):
+            a_norm = self._norm(alias)
+            if a_norm in self._system_font_map:
+                return self._system_font_map[a_norm][0]
+
+        return None
+
+    # ------------------------------------------------------------------
+    # 调试与注册
+    # ------------------------------------------------------------------
 
     def font_check(self):
         """
-        检查当前字体是否已被 ReportLab 注册
-
-        用于调试字体缺失、映射异常问题。
+        打印 ReportLab 已注册字体状态
         """
         logger.info(f"_tt2ps_map: {_tt2ps_map}")
         logger.info(f"_family_alias: {_family_alias}")
 
-        for font in self.FONTS:
-            if font in _tt2ps_map.values():
-                logger.info(f"字体已注册: {font}")
+        for norm, (family, path) in self._system_font_map.items():
+            if family in _tt2ps_map.values():
+                logger.info(f"字体已注册: {family}")
             else:
-                logger.warning(f"字体未注册，可能导致写入失败: {font}")
+                logger.debug(f"字体未注册: {family}")
 
     def register_font(self, file_name, FontName, font_b64):
         """
-        动态注册字体（base64 字体数据）
-
-        使用场景：
-        - OFD 内嵌字体
-        - 网络字体
-        - 非系统字体
-
-        Args:
-            file_name (str): 字体文件名（含扩展名）
-            FontName (str): 注册到 PDF 中的字体名称
-            font_b64 (str): base64 编码的字体数据
+        动态注册 base64 字体
         """
         if not font_b64:
             return
 
-        # 提取文件名
-        file_name = os.path.split(file_name)[-1]
+        file_name = os.path.basename(file_name)
 
-        # 若未指定字体名，使用文件名
         if not FontName:
-            FontName = file_name.split(".")[0]
+            FontName = os.path.splitext(file_name)[0]
 
         try:
-            # 将 base64 字体数据写入临时文件
             with open(file_name, "wb") as f:
                 f.write(base64.b64decode(font_b64))
 
-            # 注册字体到 ReportLab
             pdfmetrics.registerFont(TTFont(FontName, file_name))
             self.FONTS.append(FontName)
 
             logger.info(f"字体注册成功: {FontName}")
 
         except Exception as e:
-            logger.error(f"register_font_error:\n{e}\n可能包含不支持的字体格式")
+            logger.error(f"register_font_error: {e}")
             traceback.print_exc()
 
         finally:
-            # 清理临时字体文件
             if os.path.exists(file_name):
                 os.remove(file_name)

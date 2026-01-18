@@ -22,18 +22,6 @@ __ALL__ = ["pdf_ocr", "DPFParser"]
 
 class MyEncoder(json.JSONEncoder):
     def default(self, obj):
-        """自定义JSON编码器，处理特殊类型的序列化
-
-                该方法扩展了json.JSONEncoder的default方法，用于处理标准JSON编码器无法处理的数据类型：
-                - bytes类型：转换为字符串
-                - Decimal类型：转换为浮点数
-                - 其他类型：调用父类的default方法处理
-        Args:
-                    obj: 需要序列化的对象
-
-                Returns:
-                    可被JSON序列化的对象
-        """
         if isinstance(obj, bytes):
             return str(obj)
         elif isinstance(obj, Decimal):
@@ -45,59 +33,17 @@ class DPFParser(object):
     def __init__(
         self,
     ):
-        """初始化DPFParser对象
-
-        DPFParser类用于解析PDF文件，提取其中的文本和图像信息。
-        当前构造函数为空，表示该类不需要特定的初始化参数。
-        """
         pass
 
     def extract_text_with_details(self, pdf_bytes):
-        """从PDF字节流中提取每页的文本及其位置、字体等详细信息
+        """
+        提取PDF每页的文本及其位置、字体信息。
 
-                该方法解析PDF文档，提取每一页的文字内容、位置信息、字体样式等，
-                并同时提取页面上的图片信息。对于每个文本元素，会记录其所在页面、
-                文本内容、字体名称、字体大小、颜色、边界框坐标等信息。
-                对于图片元素，则记录其位置、尺寸和类型等信息。
+        :param pdf_path: PDF文件路径
+        :return: 包含每页文本及其详细信息的列表
+        [[
 
-                参数:
-                    pdf_bytes: PDF文档的字节流数据
-
-                返回:
-                    tuple: 包含两个元素的元组
-                        - details_list: 包含每页元素详细信息的列表，每个页面包含一个元素列表
-                        - res_uuid_map: 资源UUID映射字典，包含图片、字体等资源的唯一标识
-
-                示例:
-                    details_list结构:
-                    [
-                      [  # Page 0的所有元素
-                        {
-                          "page": 0,
-                          "text": "示例文本",
-                          "font": "字体名称",
-        "res_uuid": "资源唯一标识",
-                          "size": 12.0,
-                          "color": 16777215,
-                          "bbox": [x0, y0, x1, y1],
-                          "type": "text"
-                        },
-                        {
-                          "page": 0,
-                          "index": 0,
-                          "x0": 100,
-                          "y0": 200,
-                          "x1": 300,
-                          "y1": 400,
-                          "bbox": [100, 200, 200, 200],
-                          "width": 200,
-                          "height": 200,
-                          "res_uuid": "图片资源唯一标识",
-                          "image_type": "png",
-                          "type": "img"
-                        }
-                      ]
-                    ]
+        ]]
         """
         details_list = []
         pdf_stream = io.BytesIO(pdf_bytes)
@@ -218,64 +164,22 @@ class DPFParser(object):
         return details_list, res_uuid_map
 
     def to_img(self, buffer_pdf):
-        """
-        将PDF文档转换为图像列表
-
-        该方法接收PDF字节流作为输入，使用fitz库（PyMuPDF）将PDF的每一页转换为图像，
-        并通过设置缩放矩阵来提高输出图像的分辨率。
-
-        参数:
-            buffer_pdf (bytes): PDF文档的字节流数据
-
-        返回:
-            list: 包含每一页对应图像Pixmap对象的列表
-
-        示例:
-            >>> parser = DPFParser()
-            >>> with open('document.pdf', 'rb') as f:
-            ...     pdf_bytes = f.read()
-            >>> image_list = parser.to_img(pdf_bytes)
-            >>> len(image_list)  # 返回PDF的页数
-        """
-        # 创建一个空列表，用于存储每一页转换后的图像对象
+        """pdf2img"""
         pix_list = []
-
-        # 使用fitz.open打开PDF字节流，创建PDF文档对象
         pdfDoc = fitz.open(stream=buffer_pdf)
-
-        # 遍历PDF文档中的每一页
         for pg in range(pdfDoc.page_count):
-            # 获取当前页的对象
             page = pdfDoc[pg]
-
-            # 设置旋转角度（当前设为0度，即不旋转）
             rotate = int(0)
-
             # 每个尺寸的缩放系数为1.3，这将为我们生成分辨率提高2.6的图像。
             # 此处若是不做设置，默认图片大小为：792X612, dpi=96
-            # 当前设置 (1.33333333) 将生成约 1056x816 的图像
-            # 如果设置为2，则会生成约 1584x1224 的图像
-            zoom_x = 1.33333333  # X轴方向的缩放因子
-            zoom_y = 1.33333333  # Y轴方向的缩放因子
-
-            # 注释掉的这一行提供了一个替代方案：使用原始尺寸 (1,1)
+            zoom_x = 1.33333333  # (1.33333333-->1056x816)   (2-->1584x1224)
+            zoom_y = 1.33333333
             # zoom_x,zoom_y = (1,1)
-
-            # 创建变换矩阵，应用缩放和旋转
             mat = fitz.Matrix(zoom_x, zoom_y).prerotate(rotate)
-
-            # 根据变换矩阵获取页面的像素图（图像）
-            # alpha=False表示不包含透明通道，节省内存空间
             pix = page.get_pixmap(matrix=mat, alpha=False)
 
-            # 将当前页生成的图像对象添加到列表中
             pix_list.append(pix)
-
-            # 关闭PDF文档，释放资源
-            pdfDoc.close()
-
-            # 返回包含所有页面图像的列表
-            return pix_list
+        return pix_list
 
     def get_size(self):
         pass
@@ -283,42 +187,15 @@ class DPFParser(object):
 
 def coast_time(func):
     """
-    计算对象执行耗时的装饰器
-
-    这是一个装饰器函数，用于测量被装饰函数的执行时间，并在控制台打印执行耗时信息。
-    通过在函数执行前后记录时间戳，计算函数执行的时间差并输出。
-
-    参数:
-        func (callable): 需要测量执行时间的目标函数
-
-    返回:
-        callable: 返回包装后的函数，具有与原函数相同的接口
-
-    使用示例:
-        @coast_time
-        def my_function():
-            # 一些耗时操作
-            time.sleep(1)
-            return "完成"
-
-        result = my_function()  # 输出: function my_function coast time: 1.00012345 s
+    计算对象执行耗时
     """
 
-    # 定义内部包装函数，接收任意数量的位置参数和关键字参数
     def fun(*agrs, **kwargs):
-        # 记录函数开始执行时的时间戳
         t = time.perf_counter()
-
-        # 执行原始函数，并传递所有接收到的参数
         result = func(*agrs, **kwargs)
-
-        # 计算并打印函数执行耗时，保留8位小数
         print(f"function {func.__name__} coast time: {time.perf_counter() - t:.8f} s")
-
-        # 返回原始函数的执行结果
         return result
 
-    # 返回包装后的函数
     return fun
 
 
@@ -328,105 +205,48 @@ class BaseInit:
     """
 
     def __init__(self, pdf_path, output_path):
-        """
-        初始化BaseInit对象，设置PDF处理所需的基本信息
 
-        该构造函数接收PDF文件路径和输出路径作为参数，提取文件名、扩展名等信息，
-        并初始化用于生成短ID的字符集和一些默认配置参数。
-
-        参数:
-            pdf_path (str): 输入PDF文件的完整路径
-            output_path (str): 处理结果输出的目录路径
-        """
-        # 存储PDF文件的完整路径
         self.file_path = pdf_path
-        # 存储输出目录的路径
         self.output_path = output_path
-
-        # 提取文件名（不含路径）
         # file_name
         self.file_name = os.path.basename(self.file_path)
-
-        # 提取文件扩展名（例如 '.pdf'）
         # file_type
         self.fileType = os.path.splitext(self.file_path)[-1]
-
-        # 获取不带扩展名的文件名
         # no suffix
         self.file_no_suffix = self.file_name[: -len(self.fileType)]
-
-        # 创建用于生成短ID的字符集合（包含字母和数字）
         self.uuidChars = tuple(list(string.ascii_letters) + list(range(10)))
-
         # 表格占位、分割符
         self.divide = ":"
-        # 空字符串变量，可能用于拼接或替换操作
         self.solid = ""
-
         # 初始化整个过程需要创建的中间目录
-        # iou 占比（交并比阈值，用于某些图像处理或检测场景）
+        # iou 占比
         self.iou_rate = 0.001
-
-        # 调用初始化文件夹的方法，创建必要的输出目录
         self.init_file()
 
     def init_file(self):
         """
         初始化项目过程中需要创建的文件夹
-
-        该方法负责创建处理PDF文件所需的输出目录结构，包括：
-        - 用于保存PDF转图像的目录
-        - 用于保存JSON格式解析结果的目录
         """
-        # 构建图像保存目录路径，在输出目录下创建名为'pdf_img_save'的子目录
         self.image_folder_path = os.path.join(self.output_path, "pdf_img_save")
-
-        # 构建JSON文件保存目录路径，在输出目录下创建名为'json'的子目录
         self.json_folder_path = os.path.join(self.output_path, "json")
-
-        # 构建OCR结果JSON文件的完整路径，文件名基于输入PDF的文件名（不含扩展名）
         self.ocr_result_path = os.path.join(
             self.json_folder_path, self.file_no_suffix + ".json"
         )
-
         # 后面还有txt..., 目前的流程先需要5个
-        # 遍历需要创建的目录列表，检查目录是否存在，如果不存在则创建
         for path in [self.image_folder_path, self.json_folder_path]:
-            # 检查目录是否已存在
             if not os.path.exists(path):
-                # 如果目录不存在，则递归创建目录及其父目录
                 os.makedirs(path)
 
     def genShortId(self, length=12):
         """
-        生成指定长度的短ID
-
-        该方法基于UUID生成一个较短的唯一标识符，首先从UUID中提取部分字符，
-        然后根据十六进制值选择预定义字符集中的字符，最后补充随机字符到指定长度。
-
-        参数:
-            length (int): 生成的短ID长度，默认为12
-
-        返回:
-            str: 指定长度的短ID字符串
+        :params length: 默认随机生成的uuid长度
         """
-        # 生成UUID并移除其中的连字符，得到一个纯十六进制字符组成的字符串
         uuid = str(uuid1()).replace("-", "")
-
-        # 初始化结果字符串
         result = ""
-
-        # 循环8次，每次从UUID中取出4个字符作为一个十六进制子串
         for i in range(0, 8):
-            # 取出4个字符的子串
             sub = uuid[i * 4 : i * 4 + 4]
-            # 将十六进制子串转换为整数
             x = int(sub, 16)
-            # 根据整数值对字符集长度(62)取模，获取对应索引的字符
-            result += str(self.uuidChars[x % 0x3E])  # 0x3E = 62 (字母数字总数)
-
-        # 将前8位生成的字符与从UUID中随机抽取的(length-8)个字符连接起来
-        # 形成指定长度的短ID并返回
+            result += str(self.uuidChars[x % 0x3E])
         return result + "".join(random.sample(uuid, length - 8))
 
 
@@ -440,117 +260,40 @@ class PageInfo(BaseInit):
 
     @classmethod
     def add_image(cls, page_num, image):
-        """
-        添加图片到指定页面的图片列表中
-
-        该方法是PageInfo类的类方法，用于将给定的图片信息添加到指定页面号对应的图片列表中。
-        如果指定页面还没有图片列表，则创建一个新的空列表。
-
-        参数:
-            cls: 类对象引用（由@classmethod装饰器自动传入）
-            page_num (int): 页面号，用于标识图片所属的页面
-            image (any): 图片对象或图片相关信息，将被添加到对应页面的图片列表中
-        """
-        # 检查指定页面是否已有图片列表，如果没有则初始化一个空列表
         if not cls.__page_image.get(page_num):
-            # 为指定页面创建一个空的图片列表
             cls.__page_image[page_num] = []
-        # 将新图片添加到指定页面的图片列表中
         cls.__page_image[page_num].append(image)
 
     @classmethod
     def add_table(cls, page_num, table):
-        """
-        添加表格到指定页面的表格列表中
-
-        该方法是PageInfo类的类方法，用于将给定的表格信息添加到指定页面号对应的表格列表中。
-        如果指定页面还没有表格列表，则创建一个新的空列表。
-
-        参数:
-            cls: 类对象引用（由@classmethod装饰器自动传入）
-            page_num (int): 页面号，用于标识表格所属的页面
-            table (any): 表格对象或表格相关信息，将被添加到对应页面的表格列表中
-        """
-        # 检查指定页面是否已有表格列表，如果没有则初始化一个空列表
         if not cls.__page_table.get(page_num):
-            # 为指定页面创建一个空的表格列表
             cls.__page_table[page_num] = []
-        # 将新表格添加到指定页面的表格列表中
         cls.__page_table[page_num].append(table)
 
     @classmethod
     def get_image(cls, page_num):
-        """
-        获取指定页面的所有图片信息
-
-        该方法是PageInfo类的类方法，用于获取指定页面号对应的所有图片信息。
-        如果指定页面没有图片，则返回一个空列表。
-
-        参数:
-            cls: 类对象引用（由@classmethod装饰器自动传入）
-            page_num (int): 页面号，用于获取对应页面的图片列表
-
-        返回:
-            list: 包含指定页面所有图片信息的列表，如果页面不存在或没有图片则返回空列表
-        """
-        # 从类变量__page_image中获取指定页面的图片列表
-        # 如果页面不存在，则返回一个空列表作为默认值
         return cls.__page_image.get(page_num, [])
 
     @classmethod
     def get_table(cls, page_num):
-        """
-        获取指定页面的所有表格信息
-
-        该方法是PageInfo类的类方法，用于获取指定页面号对应的所有表格信息。
-        如果指定页面没有表格，则返回一个空列表。
-
-        参数:
-            cls: 类对象引用（由@classmethod装饰器自动传入）
-            page_num (int): 页面号，用于获取对应页面的表格列表
-
-        返回:
-            list: 包含指定页面所有表格信息的列表，如果页面不存在或没有表格则返回空列表
-        """
-        # 从类变量__page_table中获取指定页面的表格列表
-        # 如果页面不存在，则返回一个空列表作为默认值
         return cls.__page_table.get(page_num, [])
 
     @classmethod
     def save_image(cls, output_path, file):
         """
         保存图片至本地
-
-        该方法是PageInfo类的类方法，用于将存储在类变量中的所有图片信息保存到本地文件系统。
-        会在指定输出路径下创建"page_img_save"目录，并将每张图片以"文件名_图片名.jpg"的格式保存。
-
-        参数:
-            cls: 类对象引用（由@classmethod装饰器自动传入）
-            output_path (str): 图片保存的根目录路径
-            file (str): 原始文件名（包含扩展名），会被分割取不含扩展名的部分作为前缀
+        :param output:
+        :return:
         """
-        # 分割文件名，取不含扩展名的部分作为文件前缀
         file = file.split(".")[0]
-
-        # 遍历类变量__page_image中所有页面的图片列表
         for images in cls.__page_image.values():
-            # 遍历单个页面中的所有图片
             for image in images:
-                # 提取图片的内容（通常是二进制数据）
                 iamge_content = image["objContent"]
-                # 提取图片的名称
                 name = image["name"]
-
-                # 构建图片保存目录路径
                 img_dir = os.path.join(output_path, "page_img_save")
-                # 构建图片保存的完整文件路径，格式为"文件名_图片名.jpg"
                 img_path = os.path.join(img_dir, file + "_" + name + ".jpg")
-
-                # 检查图片保存目录是否存在，如果不存在则创建
                 if not os.path.exists(img_dir):
                     os.mkdir(img_dir)
-
-                # 以二进制写模式打开文件，将图片内容写入文件
                 with open(img_path, "wb") as fp:
                     fp.write(iamge_content)
 
