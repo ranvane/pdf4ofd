@@ -45,7 +45,6 @@ class FontTool(object):
 
         # 构建可用字体名称列表（供外部逻辑使用）
         self.FONTS = list(set(self._system_font_map.values()))
-        logger.debug(f"FontTool init, scanned system fonts: {self.FONTS}")
 
         # 构建 norm_name -> 原始 family name 映射
         self._font_norm_map = {
