@@ -15,6 +15,12 @@ from loguru import logger
 import xmltodict
 import zipfile
 
+"""OFD 模板模块
+
+该模块定义了 OFD (Open Fixed-layout Document) 文件格式的基础结构模板，
+包括文档、资源、页面等内容的模板类，用于生成符合 OFD 标准的文档。
+"""
+
 __all__ = [
     "CurId",
     "OFDTemplate",
@@ -68,9 +74,19 @@ OFD目录结构
 
 
 class CurId(object):
-    """文档内id控制对象"""
+    """
+    文档内ID控制对象
+
+    用于管理OFD文档中的各种ID，确保每个元素都有唯一的ID标识符。
+    同时维护UUID映射表，用于关联资源文件ID。
+    """
 
     def __init__(self):
+        """
+        初始化ID控制器
+
+        设置初始ID为1，并创建UUID映射表用于资源文件ID管理
+        """
         self.id = 1
         self.used = False
         self.uuid_map = (
@@ -78,13 +94,26 @@ class CurId(object):
         )  # 资源文件生成id的时候手动添加进来后面构建page 可以 匹配ResourceID
 
     def add_uuid_map(self, k, v):
+        """添加UUID映射关系
+
+        Args:
+            k: UUID键
+            v: 对应的ID值
+        """
         # logger.debug(f"uuid_map add {k}: {v}")
         self.uuid_map[k] = v
 
     def add(self):
+        """递增ID计数器"""
         self.id += 1
 
     def get_id(self):
+        """
+        获取当前ID
+        如果ID已被使用则递增后再返回，否则直接返回当前ID并标记为已使用
+        Returns:
+            int: 当前可用的ID
+        """
         if self.used:
             self.add()
             return self.id
@@ -94,18 +123,31 @@ class CurId(object):
             return cur_id
 
     def get_max_id(self):
+        """获取最大ID
+
+        Returns:
+            int: 最大ID值
+        """
         MaxUnitID = self.id + 1
         return MaxUnitID
 
 
 class TemplateBase(object):
-    """模板基类"""
+    """模板基类
+    所有OFD模板的基类，提供通用的模板操作方法，如ID生成、值修改等
+    """
 
     key_map = {}  # 变量名对应 xml 中形式 映射 如 传入   DocID -> ofd:DocID
     id_keys = []  # 对需要的要素添加 "@ID"
-    template_name = ""
+    template_name = ""  # 模板名称
 
     def __init__(self, *args, **kwargs):
+        """初始化模板基类
+
+        Args:
+            *args: 位置参数
+            **kwargs: 关键字参数，包含id_obj等
+        """
         # print(args)
         # print(kwargs)
         self.id_obj: CurId = kwargs.get("id_obj")
@@ -113,7 +155,14 @@ class TemplateBase(object):
         self.assemble(*args, **kwargs)
 
     def assemble(self, *args, **kwargs):
-        """对ofdjson组装"""
+        """对OFD JSON进行组装
+
+        复制模板JSON并根据传入的参数修改相应的值，同时为需要ID的元素生成ID
+
+        Args:
+            *args: 位置参数
+            **kwargs: 关键字参数，包含要修改的键值对
+        """
 
         self.final_json = copy.deepcopy(self.ofdjson)
 
@@ -130,7 +179,14 @@ class TemplateBase(object):
             self.gen_id(self.final_json, id_key)
 
     def gen_id(self, ofdjson, id_key):
-        """生成id"""
+        """为指定类型的元素生成ID
+
+        遍历JSON结构，为匹配到的元素类型添加ID属性
+
+        Args:
+            ofdjson: OFD JSON数据
+            id_key: 需要添加ID的元素类型
+        """
         # print("id_key ", id_key, "ofdjson ", ofdjson)
 
         for k, v in ofdjson.items():
@@ -157,7 +213,15 @@ class TemplateBase(object):
                         self.gen_id(v_cell, id_key)
 
     def modify(self, ofdjson, key, value):
-        """对指定key的值更改  多个会统一改"""
+        """修改指定键的值
+
+        遍历JSON结构，将所有匹配到的键替换为新的值
+
+        Args:
+            ofdjson: OFD JSON数据
+            key: 要修改的键
+            value: 新的值
+        """
 
         for k, v in ofdjson.items():
             if k == key:
@@ -170,21 +234,33 @@ class TemplateBase(object):
                         self.modify(v_cell, key, value)
 
     def save(self, path):
+        """将最终的JSON保存为XML文件
+
+        Args:
+            path: 保存路径
+        """
         xml_data = xmltodict.unparse(self.final_json, pretty=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(xml_data)
 
 
 class OFDTemplate(TemplateBase):
-    """根节点全局唯一 OFD.xml"""
+    """
+    OFD根节点模板 - 全局唯一 OFD.xml
+
+    定义OFD文档的根结构，包含文档信息和文档根路径等基本信息
+    """
 
     template_name = "OFD"
+
+    # 键映射表，将Python参数名映射到XML标签名
     key_map = {
         "Author": "ofd:Author",
         "DocID": "ofd:DocID",
         "CreationDate": "ofd:CreationDate",
     }
 
+    # OFD XML结构的默认模板
     ofdjson = {
         "ofd:OFD": {
             "@xmlns:ofd": "http://blog.yuanhaiying.cn",
@@ -208,11 +284,17 @@ class OFDTemplate(TemplateBase):
 
 
 class DocumentTemplate(TemplateBase):
-    """DOC 内唯一 表示DOC内部结构 Document.xml"""
+    """文档模板 - DOC内唯一 表示DOC内部结构 Document.xml
+
+    定义单个文档的结构信息，包括页面区域、资源引用等
+    """
 
     template_name = "Document"
+    # 键映射表
     key_map = {"Page": "ofd:Page", "PhysicalBox": "ofd:PhysicalBox"}
+    # 需要添加ID的元素类型
     id_keys = ["ofd:Page"]
+    # Document.xml的默认模板
     ofdjson = {
         "ofd:Document": {
             "@xmlns:ofd": "http://blog.yuanhaiying.cn",
@@ -229,6 +311,13 @@ class DocumentTemplate(TemplateBase):
     }
 
     def update_max_unit_id(self, final_json=None):
+        """更新最大单元ID
+
+        在文档处理完成后，更新CommonData中的MaxUnitID值
+
+        Args:
+            final_json: 要更新的JSON数据，默认为self.final_json
+        """
         if not final_json:
             final_json = self.final_json
 
@@ -245,15 +334,27 @@ class DocumentTemplate(TemplateBase):
                         self.update_max_unit_id(v_cell)
 
     def update_page(self, page_num):
+        """更新页面信息（预留方法）
+
+        Args:
+            page_num: 页面数量
+        """
         pass
 
 
 class DocumentResTemplate(TemplateBase):
-    """DOC 内唯一 表示MultyMedia 资源信息 如 图片 DocumentRes.xml"""
+    """
+    文档资源模板 - DOC内唯一 表示多媒体资源信息如图片 DocumentRes.xml
+
+    定义文档专用的多媒体资源（如图片、音频等）的引用信息
+    """
 
     template_name = "DocumentRes"
+    # 键映射表
     key_map = {"MultiMedia": "ofd:MultiMedia"}
+    # 需要添加ID的元素类型
     id_keys = ["ofd:DrawParam", "ofd:MultiMedia"]
+    # DocumentRes.xml的默认模板
     ofdjson = {
         "ofd:Res": {
             "@xmlns:ofd": "http://blog.yuanhaiying.cn",
@@ -267,7 +368,15 @@ class DocumentResTemplate(TemplateBase):
     }
 
     def gen_id(self, ofdjson, id_key):
-        """生成id"""
+        """
+        生成ID并维护UUID映射
+
+        重写父类方法，在生成ID的同时维护UUID到ID的映射关系
+
+        Args:
+            ofdjson: OFD JSON数据
+            id_key: 需要添加ID的元素类型
+        """
         # print("id_key ", id_key, "ofdjson ", ofdjson)
 
         for k, v in ofdjson.items():
@@ -298,11 +407,18 @@ class DocumentResTemplate(TemplateBase):
 
 
 class PublicResTemplate(TemplateBase):
-    """DOC 内唯一 公共配置资源信息 如 Font  Color 等 PublicRes.xml"""
+    """
+    公共资源模板 - DOC内唯一 公共配置资源信息如字体、颜色等 PublicRes.xml
+
+    定义文档共享的资源信息，如字体、颜色空间等
+    """
 
     template_name = "PulicRes"
+    # 键映射表
     key_map = {"Font": "ofd:Font"}
+    # 需要添加ID的元素类型
     id_keys = ["ofd:ColorSpace", "ofd:Font"]
+    # PublicRes.xml的默认模板
     ofdjson = {
         "ofd:Res": {
             "@xmlns:ofd": "http://blog.yuanhaiying.cn",
@@ -328,7 +444,14 @@ class PublicResTemplate(TemplateBase):
     }
 
     def gen_id(self, ofdjson, id_key):
-        """生成id"""
+        """生成ID并维护UUID映射
+
+        重写父类方法，在生成ID的同时维护UUID到ID的映射关系
+
+        Args:
+            ofdjson: OFD JSON数据
+            id_key: 需要添加ID的元素类型
+        """
         # print("id_key ", id_key, "ofdjson ", ofdjson)
 
         for k, v in ofdjson.items():
@@ -376,10 +499,15 @@ class PublicResTemplate(TemplateBase):
 
 
 class ContentTemplate(TemplateBase):
-    """正文部分 Content.xml"""
+    """
+    内容模板 - 正文部分 Content.xml
+
+    定义页面的具体内容，包括文本、图像、路径等对象
+    """
 
     # "@Type": "Body",
     template_name = "Content"
+    # 键映射表
     key_map = {
         "ImageObject": "ofd:ImageObject",
         "PathObject": "ofd:PathObject",
@@ -387,6 +515,7 @@ class ContentTemplate(TemplateBase):
         "CGTransform": "ofd:CGTransform",
         "PhysicalBox": "ofd:PhysicalBox",
     }
+    # 需要添加ID的元素类型
     id_keys = [
         "ofd:Layer",
         "ofd:TextObject",
@@ -394,8 +523,10 @@ class ContentTemplate(TemplateBase):
         "ofd:Clips",
         "ofd:ImageObject",
     ]
+    # 相关性映射，定义不同对象类型与其资源ID的关联
     correlate_map = {"ofd:TextObject": "@Font", "ofd:ImageObject": "@ResourceID"}
 
+    # Content.xml的默认模板
     ofdjson = {
         "ofd:Page": {
             "@xmlns:ofd": "http://blog.yuanhaiying.cn",
@@ -436,6 +567,12 @@ class ContentTemplate(TemplateBase):
     }
 
     def __init__(self, *args, **kwargs):
+        """初始化内容模板
+
+        Args:
+            *args: 位置参数
+            **kwargs: 关键字参数
+        """
         # print(args)
         # print(kwargs)
         super().__init__(*args, **kwargs)
@@ -444,6 +581,15 @@ class ContentTemplate(TemplateBase):
             self.correlate_res_uuid(self.final_json, key, targe_key)
 
     def correlate_res_uuid(self, ofdjson, key, targe_key):
+        """关联资源UUID到实际ID
+
+        将JSON中使用的资源UUID替换为实际的资源ID
+
+        Args:
+            ofdjson: OFD JSON数据
+            key: 对象类型键
+            targe_key: 目标键（如@Font或@ResourceID）
+        """
         """correlate_res_uuid"""
         # print("========uuid_map", self.id_obj.uuid_map)
         for k, v in ofdjson.items():
@@ -518,7 +664,11 @@ class ContentTemplate(TemplateBase):
 
 
 class OFDStructure(object):
-    """OFD structure"""
+    """
+    OFD结构类
+
+    用于组织和生成完整的OFD文档结构，包括所有必要的XML文件和资源文件
+    """
 
     def __init__(
         self,
@@ -530,6 +680,18 @@ class OFDStructure(object):
         content_res: list = [],
         res_static: dict = {},
     ):
+        """
+        初始化OFD结构
+
+        Args:
+            name: 文档名称
+            ofd: OFD模板实例
+            document: 文档模板实例
+            document_res: 文档资源模板实例
+            public_res: 公共资源模板实例
+            content_res: 内容模板实例列表
+            res_static: 静态资源字典
+        """
         # 初始化的时候会先自动初始化 默认参数值
         id_obj = CurId()
         self.name = name
@@ -546,7 +708,12 @@ class OFDStructure(object):
 
     def _clear_dir(self, path: str):
         """
-        清空指定目录下的所有内容（文件 + 子目录），不删除目录本身
+        清空指定目录下的所有内容
+
+        清空目录中的所有文件和子目录，但保留目录本身
+
+        Args:
+            path: 要清空的目录路径
         """
         if not os.path.exists(path):
             return
@@ -561,8 +728,9 @@ class OFDStructure(object):
                 raise RuntimeError(f"清空目录失败: {entry.path}") from e
 
     def __call__(self, test=False):
-        """
-        生成OFD文件并返回其二进制内容
+        """生成OFD文件并返回其二进制内容
+
+        创建完整的OFD文档结构，将所有组件写入相应文件，然后打包成ZIP格式
 
         Args:
             test (bool): 是否使用测试模式，测试模式下将文件保存到./test目录而非临时目录

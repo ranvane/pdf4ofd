@@ -26,13 +26,20 @@ from .pdf_parse import DPFParser
 
 class OFDWrite(object):
     """
-    写入ofd 工具类
-    """
+    OFD文档写入工具类
 
+    该类用于将PDF文档或图像列表转换为OFD（Open Fixed-layout Document）格式文档。
+    OFD是中国国家标准的版式文档格式，类似于PDF，用于固定版面的电子文档。
 
-class OFDWrite(object):
-    """
-    写入ofd 工具类
+    主要功能包括：
+    - 将PDF文档转换为OFD文档
+    - 将图像列表转换为OFD文档
+    - 构建OFD文档的各个组成部分（入口、文档结构、资源等）
+    - 处理文本和图像元素的位置转换
+
+    Attributes:
+        OP (float): 单位转换因子，用于将像素坐标转换为OFD文档中的毫米单位
+                   默认值为 96/25.4 ≈ 3.779527559，表示96 DPI下的每毫米像素数
     """
 
     def __init__(self):
@@ -57,7 +64,15 @@ class OFDWrite(object):
 
     def build_ofd_entrance(self, id_obj: Optional[CurId] = None):
         """
-        build_ofd_entrance
+        构建OFD文档入口结构
+
+        该方法创建OFD文档的根节点结构，包含文档创建时间等基本信息。
+
+        Args:
+            id_obj (Optional[CurId]): ID管理器对象，用于生成唯一的元素ID
+
+        Returns:
+            OFDTemplate: OFD文档根节点对象
         """
         CreationDate = str(datetime.now())
         ofd_entrance = OFDTemplate(CreationDate=CreationDate, id_obj=id_obj)
@@ -70,7 +85,17 @@ class OFDWrite(object):
         PhysicalBox: Optional[str] = "0 0 140 90",
     ):
         """
-        build_document
+        构建OFD文档结构
+
+        该方法创建文档节点，定义页面数量、页面位置等文档结构信息。
+
+        Args:
+            img_len (int): 页面数量（通常对应图像数量）
+            id_obj (Optional[CurId]): ID管理器对象
+            PhysicalBox (Optional[str]): 物理边界框，默认为"0 0 140 90"
+
+        Returns:
+            DocumentTemplate: 文档结构对象
         """
         pages = []
 
@@ -88,7 +113,17 @@ class OFDWrite(object):
         pfd_res_uuid_map: Optional[dict] = None,
     ):
         """
-        build_document_res
+        构建文档资源结构
+
+        该方法创建文档资源节点，定义文档中使用的多媒体资源（如图像）。
+
+        Args:
+            img_len (int): 图像数量
+            id_obj (Optional[CurId]): ID管理器对象
+            pfd_res_uuid_map (Optional[dict]): PDF资源UUID映射表
+
+        Returns:
+            DocumentResTemplate: 文档资源结构对象
         """
         MultiMedia = []
         DrawParams = []  # todo DrawParams 参数后面有空增加
@@ -119,7 +154,16 @@ class OFDWrite(object):
 
     def build_public_res(self, id_obj: CurId = None, pfd_res_uuid_map: dict = None):
         """
-        build_public_res
+        构建公共资源结构
+
+        该方法创建公共资源节点，定义文档中使用的字体等公共资源。
+
+        Args:
+            id_obj (CurId): ID管理器对象
+            pfd_res_uuid_map (dict): PDF资源UUID映射表
+
+        Returns:
+            PublicResTemplate: 公共资源结构对象
         """
         fonts = []
         if pfd_res_uuid_map and (pfd_font := pfd_res_uuid_map.get("font")):
@@ -150,8 +194,19 @@ class OFDWrite(object):
         pfd_res_uuid_map: dict = None,
     ):
         """
-        pil_img_list - >一张图片是一页
-        content_res -> 写入 pdf 信息
+        构建内容资源结构
+
+        该方法根据输入的图像列表或PDF信息列表，创建页面内容结构，
+        包含图像对象、文本对象等元素的位置和属性信息。
+
+        Args:
+            pil_img_list (list): PIL图像对象列表
+            pdf_info_list (list): PDF解析信息列表
+            id_obj (CurId): ID管理器对象
+            pfd_res_uuid_map (dict): PDF资源UUID映射表
+
+        Returns:
+            list: 内容资源对象列表，每个元素对应一个页面的内容
         """
         PhysicalBox = None
         content_res_list = []
@@ -250,7 +305,17 @@ class OFDWrite(object):
         return content_res_list
 
     def pil_2_bytes(self, image):
-        """"""
+        """
+        将PIL图像对象转换为字节数据
+
+        该方法将PIL图像对象保存到内存中的字节流，并返回字节数据。
+
+        Args:
+            image: PIL图像对象
+
+        Returns:
+            bytes: 图像的字节数据
+        """
         # 创建一个 BytesIO 对象
         img_bytesio = BytesIO()
 
@@ -266,10 +331,21 @@ class OFDWrite(object):
 
     def __call__(self, pdf_bytes=None, pil_img_list=None, optional_text=False):
         """
-        input pdf | imgs if pdf  >optional_text or not
-        0 解析pdf文件
-        1 构建必要的ofd template
-        2 转化为 ofd
+        执行OFD文档转换的主要方法
+
+        该方法是类的可调用接口，根据输入参数将PDF文档或图像列表转换为OFD文档。
+        支持带文本识别的转换（可编辑OFD）或纯图像转换。
+
+        Args:
+            pdf_bytes (bytes, optional): PDF文档的字节数据
+            pil_img_list (list, optional): PIL图像对象列表
+            optional_text (bool): 是否进行文本识别以生成可编辑OFD，默认False
+
+        Returns:
+            bytes: 生成的OFD文档字节数据
+
+        Raises:
+            Exception: 当输入参数不符合要求时可能抛出异常
         """
         pdf_obj = DPFParser()
         page_pil_img_list = None

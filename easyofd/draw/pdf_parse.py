@@ -14,31 +14,90 @@ from collections import OrderedDict
 # 第三方包
 import fitz
 from PIL import Image
+
 # import pdfplumber
 
-__ALL__ = ['pdf_ocr',"DPFParser"]
+__ALL__ = ["pdf_ocr", "DPFParser"]
+
 
 class MyEncoder(json.JSONEncoder):
     def default(self, obj):
+        """自定义JSON编码器，处理特殊类型的序列化
+
+                该方法扩展了json.JSONEncoder的default方法，用于处理标准JSON编码器无法处理的数据类型：
+                - bytes类型：转换为字符串
+                - Decimal类型：转换为浮点数
+                - 其他类型：调用父类的default方法处理
+        Args:
+                    obj: 需要序列化的对象
+
+                Returns:
+                    可被JSON序列化的对象
+        """
         if isinstance(obj, bytes):
             return str(obj)
         elif isinstance(obj, Decimal):
             return float(obj)
         return json.JSONEncoder.default(self, obj)
 
+
 class DPFParser(object):
-    def __init__(self, ):
+    def __init__(
+        self,
+    ):
+        """初始化DPFParser对象
+
+        DPFParser类用于解析PDF文件，提取其中的文本和图像信息。
+        当前构造函数为空，表示该类不需要特定的初始化参数。
+        """
         pass
 
     def extract_text_with_details(self, pdf_bytes):
-        """
-        提取PDF每页的文本及其位置、字体信息。
+        """从PDF字节流中提取每页的文本及其位置、字体等详细信息
 
-        :param pdf_path: PDF文件路径
-        :return: 包含每页文本及其详细信息的列表
-        [[
+                该方法解析PDF文档，提取每一页的文字内容、位置信息、字体样式等，
+                并同时提取页面上的图片信息。对于每个文本元素，会记录其所在页面、
+                文本内容、字体名称、字体大小、颜色、边界框坐标等信息。
+                对于图片元素，则记录其位置、尺寸和类型等信息。
 
-        ]]
+                参数:
+                    pdf_bytes: PDF文档的字节流数据
+
+                返回:
+                    tuple: 包含两个元素的元组
+                        - details_list: 包含每页元素详细信息的列表，每个页面包含一个元素列表
+                        - res_uuid_map: 资源UUID映射字典，包含图片、字体等资源的唯一标识
+
+                示例:
+                    details_list结构:
+                    [
+                      [  # Page 0的所有元素
+                        {
+                          "page": 0,
+                          "text": "示例文本",
+                          "font": "字体名称",
+        "res_uuid": "资源唯一标识",
+                          "size": 12.0,
+                          "color": 16777215,
+                          "bbox": [x0, y0, x1, y1],
+                          "type": "text"
+                        },
+                        {
+                          "page": 0,
+                          "index": 0,
+                          "x0": 100,
+                          "y0": 200,
+                          "x1": 300,
+                          "y1": 400,
+                          "bbox": [100, 200, 200, 200],
+                          "width": 200,
+                          "height": 200,
+                          "res_uuid": "图片资源唯一标识",
+                          "image_type": "png",
+                          "type": "img"
+                        }
+                      ]
+                    ]
         """
         details_list = []
         pdf_stream = io.BytesIO(pdf_bytes)
@@ -46,13 +105,8 @@ class DPFParser(object):
         # 使用fitz.open直接打开BytesIO对象
 
         with fitz.open(stream=pdf_stream, filetype="pdf") as doc:
-            res_uuid_map = {
-                "img": {},
-                "font": {},
-                "other": {}
-            } # 全局资源标识
+            res_uuid_map = {"img": {}, "font": {}, "other": {}}  # 全局资源标识
             for page_num in range(len(doc)):
-
 
                 page_details_list = []  # 页面内信息
                 page = doc.load_page(page_num)
@@ -60,8 +114,8 @@ class DPFParser(object):
                 width = rect.width
                 height = rect.height
                 if res_uuid_map["other"].get("page_size"):
-                    res_uuid_map["other"]["page_size"][page_num] = [width,height]
-                else :
+                    res_uuid_map["other"]["page_size"][page_num] = [width, height]
+                else:
                     res_uuid_map["other"]["page_size"] = {page_num: [width, height]}
                 blocks = page.get_text("dict").get("blocks")  # 获取文本块信息
                 image_list = page.get_images(full=True)  # 获取页面上所有图片的详细信息
@@ -73,7 +127,9 @@ class DPFParser(object):
 
                     # 遍历块中的每一行
                     for line in block.get("lines", []):
-                        line_text = line.get("spans", [{}])[0].get("text", "")  # 单行文本
+                        line_text = line.get("spans", [{}])[0].get(
+                            "text", ""
+                        )  # 单行文本
                         line_rect = line["bbox"]  # 行的边界框
 
                         # 遍历行中的每一个跨度（span），获取字体信息
@@ -89,27 +145,34 @@ class DPFParser(object):
                                 keys = list(res_uuid_map["font"].keys())
                                 vs = list(res_uuid_map["font"].values())
                                 idx = vs.index(font_name)
-                                res_uuid =keys[idx]
+                                res_uuid = keys[idx]
                             font_color = span.get("color")  # 字体颜色，默认可能没有
                             span_rect = (
-                            line_rect[0], line_rect[1], line_rect[2], line_rect[3])  # 使用行的边界框作为参考，具体到单个字符或词可能需要更复杂的处理
+                                line_rect[0],
+                                line_rect[1],
+                                line_rect[2],
+                                line_rect[3],
+                            )  # 使用行的边界框作为参考，具体到单个字符或词可能需要更复杂的处理
 
                             # 打印或存储信息
                             print(
                                 f"Page: {page_num }, Text: '{span_text}', Font: {font_name}, Size: {font_size}, "
-                                f"Color: {font_color}, Rect: {span_rect} ,res_uuid {res_uuid}")
+                                f"Color: {font_color}, Rect: {span_rect} ,res_uuid {res_uuid}"
+                            )
 
                             # 存储信息到details_list中（根据需要调整存储格式）
-                            page_details_list.append({
-                                "page": page_num,
-                                "text": span_text,
-                                "font": font_name,
-                                "res_uuid": res_uuid,
-                                "size": font_size,
-                                "color": font_color,
-                                "bbox": list(span_rect),
-                                "type": "text"
-                            })
+                            page_details_list.append(
+                                {
+                                    "page": page_num,
+                                    "text": span_text,
+                                    "font": font_name,
+                                    "res_uuid": res_uuid,
+                                    "size": font_size,
+                                    "color": font_color,
+                                    "bbox": list(span_rect),
+                                    "type": "text",
+                                }
+                            )
 
                 for image_index, img_info in enumerate(image_list):
                     # 解析图片信息
@@ -128,167 +191,375 @@ class DPFParser(object):
                     width = base_image["width"]  # 图片宽度
                     height = base_image["height"]  # 图片高度
 
-
-
                     # 计算坐标（左下角和右上角）
-                    x0, y0, x1, y1 = xres, yres,xres+width,yres+height
+                    x0, y0, x1, y1 = xres, yres, xres + width, yres + height
                     print(
-                        f"Page: {page_num}, image_type: '{image_type}',x0{x0}, y0{y0}, x1{x1}, y1{y1}  ")
-                    page_details_list.append({
-                        "page": page_num,
-                        "index": image_index,
-                        "x0": x0,
-                        "y0": y0,
-                        "x1": x1,
-                        "y1": y1,
-                        "bbox": [x0,y0,width,height],
-                        "width": width,
-                        "height": height,
-                        "res_uuid": res_uuid,
-                        "image_type": image_type,
-                        "type": "img"
-                    })
+                        f"Page: {page_num}, image_type: '{image_type}',x0{x0}, y0{y0}, x1{x1}, y1{y1}  "
+                    )
+                    page_details_list.append(
+                        {
+                            "page": page_num,
+                            "index": image_index,
+                            "x0": x0,
+                            "y0": y0,
+                            "x1": x1,
+                            "y1": y1,
+                            "bbox": [x0, y0, width, height],
+                            "width": width,
+                            "height": height,
+                            "res_uuid": res_uuid,
+                            "image_type": image_type,
+                            "type": "img",
+                        }
+                    )
 
                 details_list.append(page_details_list)
         # print("details_list",details_list)
         return details_list, res_uuid_map
+
     def to_img(self, buffer_pdf):
-        """pdf2img"""
+        """
+        将PDF文档转换为图像列表
+
+        该方法接收PDF字节流作为输入，使用fitz库（PyMuPDF）将PDF的每一页转换为图像，
+        并通过设置缩放矩阵来提高输出图像的分辨率。
+
+        参数:
+            buffer_pdf (bytes): PDF文档的字节流数据
+
+        返回:
+            list: 包含每一页对应图像Pixmap对象的列表
+
+        示例:
+            >>> parser = DPFParser()
+            >>> with open('document.pdf', 'rb') as f:
+            ...     pdf_bytes = f.read()
+            >>> image_list = parser.to_img(pdf_bytes)
+            >>> len(image_list)  # 返回PDF的页数
+        """
+        # 创建一个空列表，用于存储每一页转换后的图像对象
         pix_list = []
+
+        # 使用fitz.open打开PDF字节流，创建PDF文档对象
         pdfDoc = fitz.open(stream=buffer_pdf)
+
+        # 遍历PDF文档中的每一页
         for pg in range(pdfDoc.page_count):
+            # 获取当前页的对象
             page = pdfDoc[pg]
+
+            # 设置旋转角度（当前设为0度，即不旋转）
             rotate = int(0)
+
             # 每个尺寸的缩放系数为1.3，这将为我们生成分辨率提高2.6的图像。
             # 此处若是不做设置，默认图片大小为：792X612, dpi=96
-            zoom_x = 1.33333333 #(1.33333333-->1056x816)   (2-->1584x1224)
-            zoom_y = 1.33333333
+            # 当前设置 (1.33333333) 将生成约 1056x816 的图像
+            # 如果设置为2，则会生成约 1584x1224 的图像
+            zoom_x = 1.33333333  # X轴方向的缩放因子
+            zoom_y = 1.33333333  # Y轴方向的缩放因子
+
+            # 注释掉的这一行提供了一个替代方案：使用原始尺寸 (1,1)
             # zoom_x,zoom_y = (1,1)
+
+            # 创建变换矩阵，应用缩放和旋转
             mat = fitz.Matrix(zoom_x, zoom_y).prerotate(rotate)
+
+            # 根据变换矩阵获取页面的像素图（图像）
+            # alpha=False表示不包含透明通道，节省内存空间
             pix = page.get_pixmap(matrix=mat, alpha=False)
 
-
+            # 将当前页生成的图像对象添加到列表中
             pix_list.append(pix)
-        return pix_list
-           
-            
-            
+
+            # 关闭PDF文档，释放资源
+            pdfDoc.close()
+
+            # 返回包含所有页面图像的列表
+            return pix_list
+
     def get_size(self):
         pass
-    
+
+
 def coast_time(func):
-    '''
-    计算对象执行耗时
-    '''
+    """
+    计算对象执行耗时的装饰器
+
+    这是一个装饰器函数，用于测量被装饰函数的执行时间，并在控制台打印执行耗时信息。
+    通过在函数执行前后记录时间戳，计算函数执行的时间差并输出。
+
+    参数:
+        func (callable): 需要测量执行时间的目标函数
+
+    返回:
+        callable: 返回包装后的函数，具有与原函数相同的接口
+
+    使用示例:
+        @coast_time
+        def my_function():
+            # 一些耗时操作
+            time.sleep(1)
+            return "完成"
+
+        result = my_function()  # 输出: function my_function coast time: 1.00012345 s
+    """
+
+    # 定义内部包装函数，接收任意数量的位置参数和关键字参数
     def fun(*agrs, **kwargs):
+        # 记录函数开始执行时的时间戳
         t = time.perf_counter()
+
+        # 执行原始函数，并传递所有接收到的参数
         result = func(*agrs, **kwargs)
-        print(f'function {func.__name__} coast time: {time.perf_counter() - t:.8f} s')
+
+        # 计算并打印函数执行耗时，保留8位小数
+        print(f"function {func.__name__} coast time: {time.perf_counter() - t:.8f} s")
+
+        # 返回原始函数的执行结果
         return result
+
+    # 返回包装后的函数
     return fun
 
 
 class BaseInit:
-    '''
+    """
     解析pdf所需的基本信息
-    '''
+    """
 
     def __init__(self, pdf_path, output_path):
+        """
+        初始化BaseInit对象，设置PDF处理所需的基本信息
 
+        该构造函数接收PDF文件路径和输出路径作为参数，提取文件名、扩展名等信息，
+        并初始化用于生成短ID的字符集和一些默认配置参数。
+
+        参数:
+            pdf_path (str): 输入PDF文件的完整路径
+            output_path (str): 处理结果输出的目录路径
+        """
+        # 存储PDF文件的完整路径
         self.file_path = pdf_path
+        # 存储输出目录的路径
         self.output_path = output_path
+
+        # 提取文件名（不含路径）
         # file_name
         self.file_name = os.path.basename(self.file_path)
+
+        # 提取文件扩展名（例如 '.pdf'）
         # file_type
         self.fileType = os.path.splitext(self.file_path)[-1]
+
+        # 获取不带扩展名的文件名
         # no suffix
-        self.file_no_suffix = self.file_name[:-len(self.fileType)]
+        self.file_no_suffix = self.file_name[: -len(self.fileType)]
+
+        # 创建用于生成短ID的字符集合（包含字母和数字）
         self.uuidChars = tuple(list(string.ascii_letters) + list(range(10)))
+
         # 表格占位、分割符
-        self.divide = ':'
-        self.solid = ''
+        self.divide = ":"
+        # 空字符串变量，可能用于拼接或替换操作
+        self.solid = ""
+
         # 初始化整个过程需要创建的中间目录
-        # iou 占比
+        # iou 占比（交并比阈值，用于某些图像处理或检测场景）
         self.iou_rate = 0.001
+
+        # 调用初始化文件夹的方法，创建必要的输出目录
         self.init_file()
 
     def init_file(self):
         """
         初始化项目过程中需要创建的文件夹
+
+        该方法负责创建处理PDF文件所需的输出目录结构，包括：
+        - 用于保存PDF转图像的目录
+        - 用于保存JSON格式解析结果的目录
         """
-        self.image_folder_path = os.path.join(self.output_path, 'pdf_img_save')
-        self.json_folder_path = os.path.join(self.output_path, 'json')
-        self.ocr_result_path = os.path.join(self.json_folder_path, self.file_no_suffix + '.json')
+        # 构建图像保存目录路径，在输出目录下创建名为'pdf_img_save'的子目录
+        self.image_folder_path = os.path.join(self.output_path, "pdf_img_save")
+
+        # 构建JSON文件保存目录路径，在输出目录下创建名为'json'的子目录
+        self.json_folder_path = os.path.join(self.output_path, "json")
+
+        # 构建OCR结果JSON文件的完整路径，文件名基于输入PDF的文件名（不含扩展名）
+        self.ocr_result_path = os.path.join(
+            self.json_folder_path, self.file_no_suffix + ".json"
+        )
+
         # 后面还有txt..., 目前的流程先需要5个
+        # 遍历需要创建的目录列表，检查目录是否存在，如果不存在则创建
         for path in [self.image_folder_path, self.json_folder_path]:
+            # 检查目录是否已存在
             if not os.path.exists(path):
+                # 如果目录不存在，则递归创建目录及其父目录
                 os.makedirs(path)
 
     def genShortId(self, length=12):
         """
-        :params length: 默认随机生成的uuid长度
+        生成指定长度的短ID
+
+        该方法基于UUID生成一个较短的唯一标识符，首先从UUID中提取部分字符，
+        然后根据十六进制值选择预定义字符集中的字符，最后补充随机字符到指定长度。
+
+        参数:
+            length (int): 生成的短ID长度，默认为12
+
+        返回:
+            str: 指定长度的短ID字符串
         """
-        uuid = str(uuid1()).replace('-', '')
-        result = ''
+        # 生成UUID并移除其中的连字符，得到一个纯十六进制字符组成的字符串
+        uuid = str(uuid1()).replace("-", "")
+
+        # 初始化结果字符串
+        result = ""
+
+        # 循环8次，每次从UUID中取出4个字符作为一个十六进制子串
         for i in range(0, 8):
-            sub = uuid[i * 4: i * 4 + 4]
+            # 取出4个字符的子串
+            sub = uuid[i * 4 : i * 4 + 4]
+            # 将十六进制子串转换为整数
             x = int(sub, 16)
-            result += str(self.uuidChars[x % 0x3E])
-        return result + ''.join(random.sample(uuid, length - 8))
+            # 根据整数值对字符集长度(62)取模，获取对应索引的字符
+            result += str(self.uuidChars[x % 0x3E])  # 0x3E = 62 (字母数字总数)
+
+        # 将前8位生成的字符与从UUID中随机抽取的(length-8)个字符连接起来
+        # 形成指定长度的短ID并返回
+        return result + "".join(random.sample(uuid, length - 8))
 
 
 class PageInfo(BaseInit):
-    '''
+    """
     记录每页中的 图片和表格信息
-    '''
+    """
+
     __page_image = {}
     __page_table = {}
 
     @classmethod
     def add_image(cls, page_num, image):
+        """
+        添加图片到指定页面的图片列表中
+
+        该方法是PageInfo类的类方法，用于将给定的图片信息添加到指定页面号对应的图片列表中。
+        如果指定页面还没有图片列表，则创建一个新的空列表。
+
+        参数:
+            cls: 类对象引用（由@classmethod装饰器自动传入）
+            page_num (int): 页面号，用于标识图片所属的页面
+            image (any): 图片对象或图片相关信息，将被添加到对应页面的图片列表中
+        """
+        # 检查指定页面是否已有图片列表，如果没有则初始化一个空列表
         if not cls.__page_image.get(page_num):
+            # 为指定页面创建一个空的图片列表
             cls.__page_image[page_num] = []
+        # 将新图片添加到指定页面的图片列表中
         cls.__page_image[page_num].append(image)
 
     @classmethod
     def add_table(cls, page_num, table):
+        """
+        添加表格到指定页面的表格列表中
+
+        该方法是PageInfo类的类方法，用于将给定的表格信息添加到指定页面号对应的表格列表中。
+        如果指定页面还没有表格列表，则创建一个新的空列表。
+
+        参数:
+            cls: 类对象引用（由@classmethod装饰器自动传入）
+            page_num (int): 页面号，用于标识表格所属的页面
+            table (any): 表格对象或表格相关信息，将被添加到对应页面的表格列表中
+        """
+        # 检查指定页面是否已有表格列表，如果没有则初始化一个空列表
         if not cls.__page_table.get(page_num):
+            # 为指定页面创建一个空的表格列表
             cls.__page_table[page_num] = []
+        # 将新表格添加到指定页面的表格列表中
         cls.__page_table[page_num].append(table)
 
     @classmethod
     def get_image(cls, page_num):
+        """
+        获取指定页面的所有图片信息
+
+        该方法是PageInfo类的类方法，用于获取指定页面号对应的所有图片信息。
+        如果指定页面没有图片，则返回一个空列表。
+
+        参数:
+            cls: 类对象引用（由@classmethod装饰器自动传入）
+            page_num (int): 页面号，用于获取对应页面的图片列表
+
+        返回:
+            list: 包含指定页面所有图片信息的列表，如果页面不存在或没有图片则返回空列表
+        """
+        # 从类变量__page_image中获取指定页面的图片列表
+        # 如果页面不存在，则返回一个空列表作为默认值
         return cls.__page_image.get(page_num, [])
 
     @classmethod
     def get_table(cls, page_num):
+        """
+        获取指定页面的所有表格信息
+
+        该方法是PageInfo类的类方法，用于获取指定页面号对应的所有表格信息。
+        如果指定页面没有表格，则返回一个空列表。
+
+        参数:
+            cls: 类对象引用（由@classmethod装饰器自动传入）
+            page_num (int): 页面号，用于获取对应页面的表格列表
+
+        返回:
+            list: 包含指定页面所有表格信息的列表，如果页面不存在或没有表格则返回空列表
+        """
+        # 从类变量__page_table中获取指定页面的表格列表
+        # 如果页面不存在，则返回一个空列表作为默认值
         return cls.__page_table.get(page_num, [])
 
     @classmethod
     def save_image(cls, output_path, file):
-        '''
+        """
         保存图片至本地
-        :param output:
-        :return:
-        '''
-        file = file.split('.')[0]
+
+        该方法是PageInfo类的类方法，用于将存储在类变量中的所有图片信息保存到本地文件系统。
+        会在指定输出路径下创建"page_img_save"目录，并将每张图片以"文件名_图片名.jpg"的格式保存。
+
+        参数:
+            cls: 类对象引用（由@classmethod装饰器自动传入）
+            output_path (str): 图片保存的根目录路径
+            file (str): 原始文件名（包含扩展名），会被分割取不含扩展名的部分作为前缀
+        """
+        # 分割文件名，取不含扩展名的部分作为文件前缀
+        file = file.split(".")[0]
+
+        # 遍历类变量__page_image中所有页面的图片列表
         for images in cls.__page_image.values():
+            # 遍历单个页面中的所有图片
             for image in images:
-                iamge_content = image['objContent']
-                name = image['name']
-                img_dir = os.path.join(output_path, 'page_img_save')
-                img_path = os.path.join(img_dir, file + '_' + name + '.jpg')
+                # 提取图片的内容（通常是二进制数据）
+                iamge_content = image["objContent"]
+                # 提取图片的名称
+                name = image["name"]
+
+                # 构建图片保存目录路径
+                img_dir = os.path.join(output_path, "page_img_save")
+                # 构建图片保存的完整文件路径，格式为"文件名_图片名.jpg"
+                img_path = os.path.join(img_dir, file + "_" + name + ".jpg")
+
+                # 检查图片保存目录是否存在，如果不存在则创建
                 if not os.path.exists(img_dir):
                     os.mkdir(img_dir)
-                with open(img_path, 'wb') as fp:
+
+                # 以二进制写模式打开文件，将图片内容写入文件
+                with open(img_path, "wb") as fp:
                     fp.write(iamge_content)
 
 
 class ParseFile(PageInfo):
 
-    def __init__(self, pdf_path, output_path, table_type='v2', is_save=True):
+    def __init__(self, pdf_path, output_path, table_type="v2", is_save=True):
         super().__init__(pdf_path, output_path)
-        print('初始化 pdf 对象：{}'.format(self.file_path))
+        print("初始化 pdf 对象：{}".format(self.file_path))
         self.is_save = is_save
         self.table_type = table_type
         # 第一版结果列表： 行 表分开
@@ -301,11 +572,11 @@ class ParseFile(PageInfo):
         self.load_pdf()
         result = self.parse_pdf()
         self.ocr_result = result
-        print(f'解析完成：共 {len(result)} 页  表格类型： {self.table_type}')
+        print(f"解析完成：共 {len(result)} 页  表格类型： {self.table_type}")
         return result
 
     def load_pdf(self):
-        self.fitz_doc = fitz.open(self.file_path, filetype='pdf')
+        self.fitz_doc = fitz.open(self.file_path, filetype="pdf")
         # self.pdfplum_doc_pages = pdfplumber.open(self.file_path).pages
         # assert len(self.fitz_doc) == len(self.pdfplum_doc_pages)
 
@@ -314,8 +585,8 @@ class ParseFile(PageInfo):
             # 测试
             # if page_no != 25:
             #     continue
-            self.height = fitz_doc.get_text('dict')['height']
-            self.width = fitz_doc.get_text('dict')['width']
+            self.height = fitz_doc.get_text("dict")["height"]
+            self.width = fitz_doc.get_text("dict")["width"]
             # 聚合fitz页面解析的字符, 行, 块信息
             line_list = self.group_block(page_no, fitz_doc)
             # 获取页面表格信息
@@ -325,68 +596,80 @@ class ParseFile(PageInfo):
             # 获取页面图片信息
             image_list = self.get_image(page_no)
             # 构造每页最终返回结果，
-            page_result = self.construct_final_result(line_list, page_no, image_list, table_list)
+            page_result = self.construct_final_result(
+                line_list, page_no, image_list, table_list
+            )
 
-            if self.table_type == 'v2':
+            if self.table_type == "v2":
                 # 合并成ocr所需格式：表格合并至行列表
                 combine_page_result_list = self.combine_table_v2(page_result)
-                page_result = self.construct_final_result(combine_page_result_list, page_no, image_list, table_list)
+                page_result = self.construct_final_result(
+                    combine_page_result_list, page_no, image_list, table_list
+                )
 
             self.page_result_list.append(page_result)
-            if page_no and  page_no % 10 == 0:
-                print(f'解析前 {page_no} 页完成')
+            if page_no and page_no % 10 == 0:
+                print(f"解析前 {page_no} 页完成")
         final_result_list = copy.deepcopy(self.page_result_list)
         # 转换为符合ocr解析格式
-        if self.table_type == 'v2':
+        if self.table_type == "v2":
             final_result_list = self.reform_ocr_result(final_result_list)
         # 2023/09/26 保存之前加入 contIndex 给后续 抽取模型使用
         for page_num, page in enumerate(final_result_list):
-            if not page.get('lineList'):
+            if not page.get("lineList"):
                 break
             contIndex = {}
-            for line in page['lineList']:
+            for line in page["lineList"]:
                 line_bak = dict(copy.copy(line))
-                line_bak["objType_postpreprocess"] = f"{line_bak.get('objType','textLine')}_postpreprocess"
+                line_bak["objType_postpreprocess"] = (
+                    f"{line_bak.get('objType','textLine')}_postpreprocess"
+                )
                 contIndex[line_bak["lineId"]] = line_bak
-            
+
             page["contIndex"] = contIndex
-            for line in page['lineList']:
-                print(page_num, line['objType'], line['objContent'])
+            for line in page["lineList"]:
+                print(page_num, line["objType"], line["objContent"])
         # 保存至本地
         if self.is_save:
             self.save_result(final_result_list)
         for page_num, page in enumerate(final_result_list):
-            for line in page['lineList']:
-                print(page_num, line['objType'], line['objContent'])
+            for line in page["lineList"]:
+                print(page_num, line["objType"], line["objContent"])
         return final_result_list
 
     def combine_table_v2(self, page_result):
-        lineList = page_result['lineList']
-        table_list = page_result['table_list']
+        lineList = page_result["lineList"]
+        table_list = page_result["table_list"]
         # 先进行表格行、非表格行划分 减少后续操作的时间杂度
-        __notable_lines, __all_table_lines = self.filter_table_line(lineList, table_list)
-        notable_lines, all_table_lines = copy.deepcopy(__notable_lines), copy.deepcopy(__all_table_lines)
+        __notable_lines, __all_table_lines = self.filter_table_line(
+            lineList, table_list
+        )
+        notable_lines, all_table_lines = copy.deepcopy(__notable_lines), copy.deepcopy(
+            __all_table_lines
+        )
         del __notable_lines, __all_table_lines, lineList
         # 整合
-        combine_page_result_list = self.combine_table_with_line(notable_lines, all_table_lines, table_list)
+        combine_page_result_list = self.combine_table_with_line(
+            notable_lines, all_table_lines, table_list
+        )
         return combine_page_result_list
 
     def filter_table_line(self, lineList, table_list):
-        '''
+        """
         筛选出属于表格的行、在 __notable_lines 属于表格的位置插庄 方便后续补全
         __notable_lines： 非表格的行
         __all_table_lines：属于表格的行
-        '''
+        """
         __notable_lines = []
         __all_table_lines = []
         for table_info in table_list:
-            table_bbox = table_info['objPos']
+            table_bbox = table_info["objPos"]
             # 属于当前表格的所有行
             __sub_table_lines = []
             is_iter_table = False
             while lineList:
                 line = lineList.pop(0)
-                line_bbox = line['objPos']
+                line_bbox = line["objPos"]
                 # 空表格误判：行Y坐标已经超过表范围导致后续全都识别不到
                 table_y, line_y = table_bbox[3], line_bbox[1]
                 if line_y >= table_y:
@@ -400,7 +683,7 @@ class ParseFile(PageInfo):
                     if not is_iter_table:
                         is_iter_table = True
                         # 插入标记
-                        __notable_lines.append('table')
+                        __notable_lines.append("table")
                 elif iou <= 0 and not is_iter_table:
                     __notable_lines.append(line)
                 # 当前表格判断结束
@@ -421,94 +704,93 @@ class ParseFile(PageInfo):
         return __notable_lines, __all_table_lines
 
     def more_judge(self, table_bbox, lineList, max_judge=6):
-        '''
+        """
         判断后续行列表是否还存在属于当前表格的行
         对于表格、行界限不明显的额外判断 如： 页面分栏、表格不全
         :return 是否存在 True | False
-        '''
+        """
         # 往后多判断 max_judge 行
         if len(lineList) < max_judge:
             judge_lines = lineList
         else:
             judge_lines = lineList[:max_judge]
         for index, line in enumerate(judge_lines):
-            line_bbox = line['objPos']
+            line_bbox = line["objPos"]
             iou = self.count_iou(table_bbox, line_bbox)
             if iou > 0:
                 return index, True
         return index, False
 
-
     def combine_table_with_line(self, notable_lines, all_table_lines, table_list):
-        '''
+        """
         将行、字符合并至对应的表格行、cell
-        '''
+        """
         for table_id, table in enumerate(table_list):
             new_table_lines = []
-            for table_line in table['lineList']:
+            for table_line in table["lineList"]:
                 is_iter_table = False
-                table_line_bbox = table_line['objPos']
+                table_line_bbox = table_line["objPos"]
                 # 遍历每一行：全局匹配
                 for __line in all_table_lines[table_id]:
                     line = copy.deepcopy(__line)
-                    line_bbox = line['objPos']
+                    line_bbox = line["objPos"]
                     iou = self.count_iou(table_line_bbox, line_bbox)
                     # 首次识别到表格， 将文本行的文本、坐标替换为表格行文本、坐标，文本行的其他信息不变
                     if iou > self.iou_rate and not is_iter_table:
                         is_iter_table = True
-                        line['objContent'] = table_line['objContent']
-                        line['objPos'] = table_line['objPos']
-                        line['objType'] = 'table'
-                        line['tableId'] = table_id
+                        line["objContent"] = table_line["objContent"]
+                        line["objPos"] = table_line["objPos"]
+                        line["objType"] = "table"
+                        line["tableId"] = table_id
                         self.combine_cell_with_span(table_line, line)
-                        line['cells'] = table_line['cells']
+                        line["cells"] = table_line["cells"]
                         new_table_lines.append(line)
                     elif iou > self.iou_rate and is_iter_table:
                         self.combine_cell_with_span(table_line, line)
                     else:
                         pass
-            if 'table' not in notable_lines or not new_table_lines:
+            if "table" not in notable_lines or not new_table_lines:
                 # FIX ERROR: 'table' is not in list
                 # 处理大表格内识别到小表格的情况
                 # 有可能的bug：如果此时有多个大表格嵌套会导致行分配和插庄个数不对等
                 continue
             # 将表格行new_table_lines替换之前插庄table位置并展开
-            table_index = notable_lines.index('table')
+            table_index = notable_lines.index("table")
             new_notable_lines = notable_lines[:table_index]
             new_notable_lines.extend(new_table_lines)
-            notable_lines = new_notable_lines + notable_lines[table_index+1:]
+            notable_lines = new_notable_lines + notable_lines[table_index + 1 :]
         return notable_lines
 
-    def combine_cell_with_span(self,table_line , text_line):
-        '''
+    def combine_cell_with_span(self, table_line, text_line):
+        """
         将表格的cell内加上对应span的chars信息：解决表格合并时cell有多行导致chars顺序错乱的问题
-        '''
+        """
         del_list = []
-        for index, cell in enumerate(table_line['cells']):
-            if not cell.get('chars'):
-                cell['chars'] = []
-            cell_bbox = cell['objPos']
+        for index, cell in enumerate(table_line["cells"]):
+            if not cell.get("chars"):
+                cell["chars"] = []
+            cell_bbox = cell["objPos"]
             if cell_bbox is None:
                 del_list.append(index)
                 continue
-            for span in  text_line['span']:
-                span_bbox = span['bbox']
+            for span in text_line["span"]:
+                span_bbox = span["bbox"]
                 iou = self.count_iou(cell_bbox, span_bbox)
                 if iou < self.iou_rate:
                     continue
                 # 为了解决一些 span 和 cell 长度不一致问题 将循环细分到每个字符chars
-                for char in span['chars']:
-                    char_bbox = char['bbox']
+                for char in span["chars"]:
+                    char_bbox = char["bbox"]
                     iou = self.count_iou(cell_bbox, char_bbox)
                     if iou > self.iou_rate:
-                        cell['chars'].append(char)
+                        cell["chars"].append(char)
                     else:
                         pass
         # 清除无效的span
         if len(del_list):
             for index, index_del in enumerate(del_list):
                 index_del -= index
-                del table_line['cells'][index_del]
+                del table_line["cells"][index_del]
 
     def group_block(self, page_num, fitz_doc):
         """
@@ -520,52 +802,66 @@ class ParseFile(PageInfo):
         line_count = 0
         total_line_list = []
         # char_blocks 最小粒度为每一个字符
-        char_blocks = fitz_doc.get_text('rawdict')['blocks']
+        char_blocks = fitz_doc.get_text("rawdict")["blocks"]
         # block_blocks 最小粒度为每行中的span
-        block_blocks = fitz_doc.get_text('dict')['blocks']
+        block_blocks = fitz_doc.get_text("dict")["blocks"]
         # 先进行文本块排序
-        char_blocks.sort(key=lambda x: [int(x['bbox'][1]), int(x['bbox'][0])])
-        block_blocks.sort(key=lambda x: [int(x['bbox'][1]), int(x['bbox'][0])])
+        char_blocks.sort(key=lambda x: [int(x["bbox"][1]), int(x["bbox"][0])])
+        block_blocks.sort(key=lambda x: [int(x["bbox"][1]), int(x["bbox"][0])])
         # 分组聚合
         group_blocks = zip(block_blocks, char_blocks)
         for span_blocks, char_block in group_blocks:
-            if span_blocks['type'] == 1:
+            if span_blocks["type"] == 1:
                 # 保存其中的图片
                 img_attrs = self.deal_image(page_num, line_count, span_blocks)
                 self.add_image(page_num, img_attrs)
                 continue
-            for line_index, line in enumerate(span_blocks['lines']):
-                line['text'] = ''
-                line['chars'] = []
-                line['span'] = []
+            for line_index, line in enumerate(span_blocks["lines"]):
+                line["text"] = ""
+                line["chars"] = []
+                line["span"] = []
                 # 减少时间复杂度，在此处合并每一行
                 # 合并每一行，并附上行内每一个字符的信息
-                for span_index, span in enumerate(line['spans']):
-                    span['text'] = span['text'].replace(' ', '').strip()
-                    if not span['text']:
+                for span_index, span in enumerate(line["spans"]):
+                    span["text"] = span["text"].replace(" ", "").strip()
+                    if not span["text"]:
                         continue
                     # 给span_blocks中的span加上char_block的chars信息
-                    span_chars = char_block['lines'][line_index]['spans'][span_index]['chars']
-                    span_chars = [char for char in span_chars if char['c'].strip()]
-                    line['text'] += span['text']
-                    line['chars'].extend(span_chars)
-                    line['span'].append({'bbox': span['bbox'], 'chars': span_chars,'text': span['text']})
-                if not line['text']:
+                    span_chars = char_block["lines"][line_index]["spans"][span_index][
+                        "chars"
+                    ]
+                    span_chars = [char for char in span_chars if char["c"].strip()]
+                    line["text"] += span["text"]
+                    line["chars"].extend(span_chars)
+                    line["span"].append(
+                        {
+                            "bbox": span["bbox"],
+                            "chars": span_chars,
+                            "text": span["text"],
+                        }
+                    )
+                if not line["text"]:
                     continue
                 # 构造每行内部的数据结构
-                line_info = self.construct_line_info(line['text'], line['bbox'], line['span'], line['chars'],
-                                                     line_count, page_num)
+                line_info = self.construct_line_info(
+                    line["text"],
+                    line["bbox"],
+                    line["span"],
+                    line["chars"],
+                    line_count,
+                    page_num,
+                )
                 total_line_list.append(line_info)
                 line_count += 1
         return total_line_list
 
     def extract_table(self, page_no, plum_page):
-        '''
+        """
         提取页面所有表格
         :param page_no:
         :param plum_page:
         :return:
-        '''
+        """
         table_list = []
         for table in plum_page.find_tables():
             # 获取当前表格的边界定位
@@ -579,17 +875,17 @@ class ParseFile(PageInfo):
         return table_list
 
     def merge_table_row(self, table):
-        '''
+        """
         表格cell 按行合并
         :param table:
         :return: [({line_text}, {line_bbox}), ...]
-        '''
+        """
         table_line_list = []
         for item, row in zip(table.extract(), table.rows):
             # 表格每行预处理
             table_line = self.divide.join([self.clear_text(txt) for txt in item])
             # 判断当前行是否为空
-            __line = self.clear_text(table_line).replace(' ', '')
+            __line = self.clear_text(table_line).replace(" ", "")
             if not __line:
                 continue
             table_line_list.append((table_line, row.bbox, zip(item, row.cells)))
@@ -598,109 +894,123 @@ class ParseFile(PageInfo):
     def clear_text(self, txt, retrans=False):
 
         if retrans:
-            txt = txt.replace(self.solid, '').replace(self.divide, '')
+            txt = txt.replace(self.solid, "").replace(self.divide, "")
         else:
             # 空列替换为占位符
             txt = txt if txt else self.solid
-        return str(txt).replace('\n', '').replace(' ', '')
+        return str(txt).replace("\n", "").replace(" ", "")
 
     def deal_table(self, page_no, table_bbox, table_line_list):
-        '''
+        """
         对表格做结构转换
         :param page_no:
         :param table_bbox:
         :param table_line_list:
         :return:
-        '''
+        """
         table_first_line = self.clear_text(table_line_list[0][0], retrans=True)
-        table_id = '{0}_{1}_'.format(page_no, table_first_line) + self.genShortId()
-        lineList = [{
-            'objContent': line[0],
-            'objPos': line[1],
-            'cells': self.deal_table_cell(line[2])
-        } for line in table_line_list]
+        table_id = "{0}_{1}_".format(page_no, table_first_line) + self.genShortId()
+        lineList = [
+            {
+                "objContent": line[0],
+                "objPos": line[1],
+                "cells": self.deal_table_cell(line[2]),
+            }
+            for line in table_line_list
+        ]
         table_info = {
-            'tableId': table_id,
-            'name': table_id,
-            'objPos': table_bbox,
-            'lineList': lineList,
+            "tableId": table_id,
+            "name": table_id,
+            "objPos": table_bbox,
+            "lineList": lineList,
         }
         return table_info
 
     def deal_table_cell(self, cells):
-        return [{"objContent": self.clear_text(text), "objPos": box} for text, box in cells]
+        return [
+            {"objContent": self.clear_text(text), "objPos": box} for text, box in cells
+        ]
 
     def deal_image(self, page_num, name, img_attrs):
-        '''
+        """
         对image做结构转换
         :param page_num:
         :param name:
         :param img_attrs:
         :return:
-        '''
-        image_id = '{0}_{1}_'.format(page_num, name) + self.genShortId()
+        """
+        image_id = "{0}_{1}_".format(page_num, name) + self.genShortId()
         img_info = {
-            'imageId': image_id,
-            'name': image_id,  # 暂时以图片所在页面的行数命名
-            'objPos': img_attrs['bbox'],
-            'ext': img_attrs['ext'],
-            'objContent': img_attrs['image'],
-            'size': img_attrs['size']
+            "imageId": image_id,
+            "name": image_id,  # 暂时以图片所在页面的行数命名
+            "objPos": img_attrs["bbox"],
+            "ext": img_attrs["ext"],
+            "objContent": img_attrs["image"],
+            "size": img_attrs["size"],
         }
         return img_info
 
     def deal_chars(self, line_num, lineId, chars):
-        '''
+        """
         对chars做结构转换
         :param line_num:
         :param lineId:
         :param chars:
         :return:
-        '''
+        """
         num_count = 0
         char_list = []
         for char in chars:
-            if not char['c'].strip():
+            if not char["c"].strip():
                 continue
             char_dict = {
-                'lineId': lineId,
-                'charId': 'char_' + str(line_num) + '_' + str(num_count) + '_' + self.genShortId(),
-                'objContent': char['c'],
-                'objPos': char['bbox']
+                "lineId": lineId,
+                "charId": "char_"
+                + str(line_num)
+                + "_"
+                + str(num_count)
+                + "_"
+                + self.genShortId(),
+                "objContent": char["c"],
+                "objPos": char["bbox"],
             }
             char_list.append(char_dict)
             num_count += 1
         return char_list
 
-    def construct_line_info(self, text, rect, span, chars, count, pageNo, objType='textLine'):
-        '''
+    def construct_line_info(
+        self, text, rect, span, chars, count, pageNo, objType="textLine"
+    ):
+        """
         对每行做结构转换
         # x, y, h, w = rect[0], rect[1], rect[3] - rect[1], rect[2] - rect[0]
-        '''
-        lineId = 'line_' + str(pageNo) + '_' + str(count) + '_' + self.genShortId()
+        """
+        lineId = "line_" + str(pageNo) + "_" + str(count) + "_" + self.genShortId()
         chars = self.deal_chars(count, lineId, chars)
-        return OrderedDict({
-            'lineNo': count,
-            'lineId': lineId,
-            'objType': objType,
-            'objContent': re.sub(r'\s', '', text),
-            'chars': chars,
-            'objPos': rect,
-            'span': span
-        })
+        return OrderedDict(
+            {
+                "lineNo": count,
+                "lineId": lineId,
+                "objType": objType,
+                "objContent": re.sub(r"\s", "", text),
+                "chars": chars,
+                "objPos": rect,
+                "span": span,
+            }
+        )
 
     @staticmethod
     def rect_format(bbox):
-        '''
+        """
         数据坐标转换 x1, y1, x2, y2 >> y1, x1 h, w
         :param rect: [x1, y1, x2, y2]
         :return: [y, x, h, w]
-        '''
+        """
         y, x, h, w = bbox[1], bbox[0], bbox[3] - bbox[1], bbox[2] - bbox[0]
         return [y, x, h, w]
 
     def count_iou(self, RecA, RecB):
-        '''
+        """
         计算边框交并比
         左上边界坐标为Ax0, Ay0, Bx0, By0
         右下边界坐标为Ax1, Ay1, Bx1, By1
@@ -709,7 +1019,7 @@ class ParseFile(PageInfo):
             H = min(Ay1, By1) - max(Ay0, By0)
         # 当前表格的边界信息
         left_x, top_y, right_x, botm_y： table_box_info[0], table_box_info[1], table_box_info[2], table_box_info[3]
-        '''
+        """
         M = min(RecB[2], RecA[2]) - max(RecB[0], RecA[0])
         H = min(RecB[3], RecA[3]) - max(RecB[1], RecA[1])
 
@@ -724,34 +1034,42 @@ class ParseFile(PageInfo):
         return iou
 
     def construct_final_result(self, line_list, pageNo, image_list=[], table_list=[]):
-        '''
+        """
         每页转换为最终数据结构
         :param line_list: ocr每行结果
         :param pageNo: 页码
         :param image_list:
         :param table_list:
         :return: type: Dict
-        '''
-        document_id = 'v1' + '_' + self.file_no_suffix + '_' + self.genShortId()
-        return OrderedDict({
-            'pageNo': pageNo,
-            'docID': document_id,
-            'page_info':{'size': [self.width, self.height]},
-            'lineList': line_list,
-            'image_list': image_list if image_list else [],
-            'table_list': table_list if table_list else []
-        })
+        """
+        document_id = "v1" + "_" + self.file_no_suffix + "_" + self.genShortId()
+        return OrderedDict(
+            {
+                "pageNo": pageNo,
+                "docID": document_id,
+                "page_info": {"size": [self.width, self.height]},
+                "lineList": line_list,
+                "image_list": image_list if image_list else [],
+                "table_list": table_list if table_list else [],
+            }
+        )
 
     def save_result(self, final_result_list):
-        '''
+        """
         保存结果数据至本地
-        '''
-        if self.table_type == 'v2':
-            with open(self.ocr_result_path, 'w', encoding='utf-8') as f:
+        """
+        if self.table_type == "v2":
+            with open(self.ocr_result_path, "w", encoding="utf-8") as f:
                 json.dump(final_result_list, f, indent=4, ensure_ascii=False)
         else:
-            with open(self.ocr_result_path, 'w', encoding='utf-8') as f:
-                json.dump(self.page_result_list, f, cls=MyEncoder, indent=4, ensure_ascii=False)
+            with open(self.ocr_result_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    self.page_result_list,
+                    f,
+                    cls=MyEncoder,
+                    indent=4,
+                    ensure_ascii=False,
+                )
 
     def reform_ocr_result(self, final_result_list):
         """
@@ -759,83 +1077,85 @@ class ParseFile(PageInfo):
         :param final_result_list: 本地解析和ocr解析的合并结果
         """
         for result_list in final_result_list:
-            del result_list['image_list']
-            del result_list['table_list']
-            lineList = result_list['lineList']
+            del result_list["image_list"]
+            del result_list["table_list"]
+            lineList = result_list["lineList"]
             for num, line in enumerate(lineList):
                 # 重写行号和行ID
-                line['lineNo'] = str(num)
-                line_split = line['lineId'].split('_')
+                line["lineNo"] = str(num)
+                line_split = line["lineId"].split("_")
                 line_split[-2] = str(num)
-                line['lineId'] = '_'.join(line_split)
+                line["lineId"] = "_".join(line_split)
                 # 转换坐标格式
-                obj_type = line['objType']
+                obj_type = line["objType"]
                 # 计算每一个字相对于当前行想x，y 的偏移量
                 offset_x_list, offset_y_list = self.coord_offset(line, obj_type)
-                line['objPos'] = self.rect_format(line['objPos'])
-                line['objPos'].append(offset_x_list)
-                line['chars_offset'] = [offset_x_list, offset_y_list]
-                if line.get('chars'):
-                    del line['chars']
-                if obj_type == 'table' and line.get('span'):
-                    del line['span']
+                line["objPos"] = self.rect_format(line["objPos"])
+                line["objPos"].append(offset_x_list)
+                line["chars_offset"] = [offset_x_list, offset_y_list]
+                if line.get("chars"):
+                    del line["chars"]
+                if obj_type == "table" and line.get("span"):
+                    del line["span"]
         return final_result_list
 
-    def coord_offset(self, line, obj_type='textLine'):
-        '''
+    def coord_offset(self, line, obj_type="textLine"):
+        """
         计算每个字符的左上角 相对行左上角位置的偏移量
         @obj_type: textLine | table
-        '''
+        """
         offset_x_list = []
         offset_y_list = []
-        line_x, line_y = line['objPos'][0], line['objPos'][1]
-        if obj_type == 'textLine':
-            for span in line['span']:
+        line_x, line_y = line["objPos"][0], line["objPos"][1]
+        if obj_type == "textLine":
+            for span in line["span"]:
                 self.all_rect_format(span)
-                for char in span['chars']:
-                    char_x, char_y = char['bbox'][0], char['bbox'][1]
+                for char in span["chars"]:
+                    char_x, char_y = char["bbox"][0], char["bbox"][1]
                     offset_x_list.append(char_x - line_x)
                     offset_y_list.append(char_y - line_y)
                     self.all_rect_format(char)
         else:
             __cells = []
-            for num, _cell in enumerate(line['cells']):
+            for num, _cell in enumerate(line["cells"]):
                 cell = copy.deepcopy(_cell)
                 self.all_rect_format(cell)
-                for char in cell['chars']:
-                    char_x, char_y = char['bbox'][0], char['bbox'][1]
+                for char in cell["chars"]:
+                    char_x, char_y = char["bbox"][0], char["bbox"][1]
                     offset_x_list.append(char_x - line_x)
                     offset_y_list.append(char_y - line_y)
                     self.all_rect_format(char)
                 __cells.append(cell)
-            line['cells'] = __cells
+            line["cells"] = __cells
         return offset_x_list, offset_y_list
 
     def all_rect_format(self, obj):
-        '''
+        """
         将所有格式转换为ocr所需格式
-        '''
-        if 'chars' in obj:
-            if obj.get('text'):
-                obj['objContent'] = obj['text']
-                del obj['text']
-            if obj.get('objPos'):
-                obj['objPos'] = self.rect_format(obj['objPos'])
-            elif obj.get('bbox'):
-                obj['objPos'] = self.rect_format(obj['bbox'])
-                del obj['bbox']
+        """
+        if "chars" in obj:
+            if obj.get("text"):
+                obj["objContent"] = obj["text"]
+                del obj["text"]
+            if obj.get("objPos"):
+                obj["objPos"] = self.rect_format(obj["objPos"])
+            elif obj.get("bbox"):
+                obj["objPos"] = self.rect_format(obj["bbox"])
+                del obj["bbox"]
         else:
-            obj['objContent'] = obj['c']
-            obj['objPos'] = self.rect_format(obj['bbox'])
-            del obj['c']
-            del obj['bbox']
+            obj["objContent"] = obj["c"]
+            obj["objPos"] = self.rect_format(obj["bbox"])
+            del obj["c"]
+            del obj["bbox"]
+
 
 class CalcTableRL:
-    '''
+    """
     还原表格虚线 计算表格行列合并信息
     输入目标表格结构信息：必须包含所有的cell坐标
     在目标表格结构cell上加上row_start_end, col_start_end属性
-    '''
+    """
+
     def __init__(self, table_info):
         self.table_info = table_info
 
@@ -847,45 +1167,46 @@ class CalcTableRL:
         else:
             table_info = self.add_table_property(self.table_info)
             yield table_info
+
     def add_table_property(self, table_info):
-        '''
+        """
         表格结构增加行列合并信息:
         cell['col_start_end'] = (col_start, col_end)
         cell['row_start_end'] = (row_start, row_end)
-        '''
+        """
         # 分别得到所有排序好的行列坐标
         set_x, set_y = self.collect_table_coord(table_info)
         # 排序 后的set_x，set_y 坐标集合就是最小粒度表格
         list_x, list_y = sorted(set_x), sorted(set_y)
-        for line in table_info['lineList']:
-            for cell in line['cells']:
-                if cell['objPos'] == None:
+        for line in table_info["lineList"]:
+            for cell in line["cells"]:
+                if cell["objPos"] == None:
                     continue
-                x1, y1, x2, y2 = cell['objPos']
+                x1, y1, x2, y2 = cell["objPos"]
                 # 查找坐标点在虚线表格中对应的位置
                 col_start = list_x.index(x1)
                 col_end = list_x.index(x2)
                 row_start = list_y.index(y1)
                 row_end = list_y.index(y2)
-                cell['col_start_end'] = (col_start, col_end)
-                cell['row_start_end'] = (row_start, row_end)
+                cell["col_start_end"] = (col_start, col_end)
+                cell["row_start_end"] = (row_start, row_end)
                 # print(f"{cell['objContent']} 属于行：{cell['row_start_end']} 属于列：{cell['col_start_end']}")
         return table_info
 
     def collect_table_coord(self, table_info):
-        '''
+        """
         获取所有x, y坐标点
         传入单个表格信息，提取出其中所有cell的x1, y1, x2, y2坐标点 去重
         :param table_info:
         :return: set(x), set(y)
-        '''
+        """
         set_x = set()
         set_y = set()
-        for line in table_info['lineList']:
-            for cell in line['cells']:
-                if cell['objPos'] == None:
+        for line in table_info["lineList"]:
+            for cell in line["cells"]:
+                if cell["objPos"] == None:
                     continue
-                x1, y1, x2, y2 = cell['objPos']
+                x1, y1, x2, y2 = cell["objPos"]
                 set_x.add(x1)
                 set_x.add(x2)
                 set_y.add(y1)
@@ -893,74 +1214,78 @@ class CalcTableRL:
         return set_x, set_y
 
 
-
-def pdf_ocr(pdf_path, output_path, table_type='v2', is_save=True):
-    '''
+def pdf_ocr(pdf_path, output_path, table_type="v2", is_save=True):
+    """
     简单封装, 方便调用和多线程
-    '''
+    """
     pdf = ParseFile(pdf_path, output_path, table_type, is_save)
     pdf.get_result()
     return pdf
 
+
 # ---------------------------以下是测试案列-----------------------------------
+
 
 @coast_time
 def test_dir():
-    for root in os.walk(r'E:\workplace\cjhx_test\创金和信\pdf2json\input\all_test'):
+    for root in os.walk(r"E:\workplace\cjhx_test\创金和信\pdf2json\input\all_test"):
         dir, files = root[0], root[2]
         for file in files:
-            if 'test.pdf' not in file:
+            if "test.pdf" not in file:
                 continue
             file_path = os.path.join(dir, file)
-            output_dir = r'E:\workplace\cjhx_test\创金和信\pdf2json\file_data\all_test'
+            output_dir = r"E:\workplace\cjhx_test\创金和信\pdf2json\file_data\all_test"
             pdf_ocr_result = pdf_ocr(file_path, output_dir)
+
 
 @coast_time
 def test_single():
     # file_path = r'E:\workplace\daily_work\pdf2json\input\all_test\测试足够复杂的表格解析.pdf'
-    file_path = r'/home/yhocr/extractor/3f195fba-0916-4d74-b956-bf3bcadc77f2/20220913-浙江省贰号职业年金计划银华资产组合2022年二季度管理费用支付指令.pdf'
+    file_path = r"/home/yhocr/extractor/3f195fba-0916-4d74-b956-bf3bcadc77f2/20220913-浙江省贰号职业年金计划银华资产组合2022年二季度管理费用支付指令.pdf"
     # file_path = r'E:\workplace\daily_work\pdf2json\input\all_test\公开募集基金销售支付结算机构名录(2022年9月)(1).pdf'
     # file_path = r'C:\Users\Administrator\Documents\WeChat Files\wxid_x36dhycno4s121\FileStorage\File\2022-11\20210928-ZL001-西部利得天添鑫货币B-申购5000万-确认书.pdf'
     # file_path = r'E:\workplace\daily_work\pdf2json\input\all_test\2-信息系统部2021年大数据平台系统维护服务--工作记录表和考核表2021Q3-原版.pdf'
-    output_dir = r'/home/yhocr/extractor/3f195fba-0916-4d74-b956-bf3bcadc77f2/电子解析'
-    pdf = pdf_ocr(file_path, output_dir, table_type='v2')
+    output_dir = r"/home/yhocr/extractor/3f195fba-0916-4d74-b956-bf3bcadc77f2/电子解析"
+    pdf = pdf_ocr(file_path, output_dir, table_type="v2")
     # print(pdf.ocr_result)
+
 
 @coast_time
 def test_thread():
     # 多进程
     from concurrent.futures import ProcessPoolExecutor
+
     pool = ProcessPoolExecutor(max_workers=8)
     # 多线程
     # from concurrent.futures import ThreadPoolExecutor
     # pool = ThreadPoolExecutor(max_workers=8)
-    for root in os.walk(r'E:\workplace\daily_work\pdf2json\input\签字模板二'):
+    for root in os.walk(r"E:\workplace\daily_work\pdf2json\input\签字模板二"):
         dir, files = root[0], root[2]
         for file in files:
             file_path = os.path.join(dir, file)
-            output_dir = r'E:\workplace\daily_work\pdf2json\output\签字模板二'
-            ret = pool.submit(pdf_ocr, file_path, output_dir, table_type='v2')
+            output_dir = r"E:\workplace\daily_work\pdf2json\output\签字模板二"
+            ret = pool.submit(pdf_ocr, file_path, output_dir, table_type="v2")
             ret.add_done_callback(print_callback)
     pool.shutdown()
+
 
 def print_callback(ret):
     # print('ret:', ret.result())
     pass
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # test_dir()
     # test_thread()
     # test_single()
     pdf_obj = DPFParser()
-    with open(r"F:\code\easyofd\test\test.pdf","rb") as f:
+    with open(r"F:\code\easyofd\test\test.pdf", "rb") as f:
         pdf_bytes = f.read()
 
     img_list = pdf_obj.to_img(pdf_bytes)
     pil_img_list = []
     for _img in img_list:
-        print(_img.width,_img.height)
+        print(_img.width, _img.height)
         img = Image.frombytes("RGB", [_img.width, _img.height], _img.samples)
         print(type(img))
-        img.save('output_image.png')
-      
-    
+        img.save("output_image.png")
