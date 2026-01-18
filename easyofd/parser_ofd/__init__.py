@@ -31,4 +31,8 @@ for font, names in font_map.items():
 
 from easyofd.parser_ofd.ofd_parser import OFDParser
 
+_OP = (
+    96 / 25.4
+)  # 当前使用的转换因子：96 DPI转换为毫米单位,转换因子的另一种计算方式:(200 / 25.4) / (200 / 96) = 96 / 25.4 ≈ 3.78
+
 __all__ = ["OFDParser"]

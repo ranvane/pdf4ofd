@@ -32,7 +32,10 @@ class DrawPDF:
         assert data, "未输入ofd解析结果"
         self.data = data
         self.author = "renoyuan"
-        self.OP = 200 / 25.4
+        self.OP = (
+            96 / 25.4
+        )  # 当前使用的转换因子：96 DPI转换为毫米单位,转换因子的另一种计算方式:(200 / 25.4) / (200 / 96) = 96 / 25.4 ≈ 3.78
+
         # self.OP = 1
         self.pdf_uuid_name = self.data[0]["pdf_name"]
         self.pdf_io = BytesIO()
